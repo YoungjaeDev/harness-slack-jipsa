@@ -1,0 +1,23 @@
+# 시크릿 절대 커밋 금지
+*.env
+!.env.example
+
+# 로그
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+
+# 사용자 환경에서 생성된 파일
+secrets/
+sessions/
+.processed/
+
+# 다른 세션 작업물 (키트 본체와 무관)
+TASK_PIPELINE.md
+REVIEW*.md

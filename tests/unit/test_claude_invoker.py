@@ -6,6 +6,22 @@ from unittest.mock import MagicMock, patch
 import claude_invoker
 
 
+def test_run_claude_injects_slack_bot_triggered_env():
+    """자식 claude 가 헤드리스 컨텍스트를 감지하도록 SLACK_BOT_TRIGGERED=1 마커 주입."""
+    with patch("claude_invoker.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        claude_invoker.run_claude(
+            prompt="hi",
+            session_id="33333333-3333-3333-3333-333333333333",
+            is_new=True,
+            timeout=60,
+            system_prompt="test",
+        )
+        env_arg = mock_run.call_args.kwargs.get("env") or {}
+        assert env_arg.get("SLACK_BOT_TRIGGERED") == "1"
+        assert env_arg.get("CLAUDE_SKIP_HOOKS") == "1"
+
+
 def test_run_claude_forces_utf8_decoding():
     """`subprocess.run` 호출에 encoding='utf-8' + errors='replace' 가 들어가야 한다.
 

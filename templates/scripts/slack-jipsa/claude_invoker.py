@@ -17,6 +17,10 @@ def run_claude(prompt: str, session_id: str, is_new: bool, timeout: int,
     """claude --print 1회 호출. caller 가 timeout 결정."""
     env = os.environ.copy()
     env["CLAUDE_SKIP_HOOKS"] = "1"
+    # 자식 claude 및 하위 스킬이 헤드리스(슬랙) 컨텍스트를 감지하고
+    # AskUserQuestion / ExitPlanMode 같은 인터랙티브 도구 호출을 회피하도록
+    # 마커 주입. 시스템 프롬프트(build_system_prompt) 가드와 짝.
+    env["SLACK_BOT_TRIGGERED"] = "1"
     cmd = [
         "claude", "--print",
         "--permission-mode", "bypassPermissions",

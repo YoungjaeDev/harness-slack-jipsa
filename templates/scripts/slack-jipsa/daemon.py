@@ -170,26 +170,25 @@ def log(msg: str) -> None:
     (LOGS_DIR / f'{today}.log').open('a').write(line + '\n')
 
 
+# session_storage 위임 (Phase A.1 Task 7 — 점진적 분리)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from session_storage import (
+    session_path as _session_path_impl,
+    get_or_create_session as _get_or_create_session_impl,
+    reset_session as _reset_session_impl,
+)
+
+
 def session_path(channel: str) -> Path:
-    return SESSIONS_DIR / f'{channel}.txt'
+    return _session_path_impl(channel, SESSIONS_DIR)
 
 
 def get_or_create_session(channel: str) -> tuple[str, bool]:
-    """채널의 session_id 반환. 없으면 새로 생성. (id, is_new)"""
-    p = session_path(channel)
-    if p.exists():
-        sid = p.read_text().strip()
-        if sid: return sid, False
-    sid = str(uuid.uuid4())
-    p.write_text(sid)
-    return sid, True
+    return _get_or_create_session_impl(channel, SESSIONS_DIR)
 
 
 def reset_session(channel: str) -> str:
-    """세션 리셋. 새 session_id 생성."""
-    sid = str(uuid.uuid4())
-    session_path(channel).write_text(sid)
-    return sid
+    return _reset_session_impl(channel, SESSIONS_DIR)
 
 
 SYSTEM_PROMPT = f"""당신은 {USER_NAME}님의 슬랙 비서 '{BOT_NAME}'입니다.

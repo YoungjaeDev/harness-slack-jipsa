@@ -52,14 +52,7 @@ description: 사용자에게 "내 컴퓨터에 사는 에이전트" 셋업을 1:
 
 `folder-watch.ps1` 본체는 위 B 카테고리 `.tmpl` 에서 치환 후 Write.
 
-### D. AI 책임 — Windows Stop hook 만 즉석 생성
-
-Windows용 `slack-session-summary.ps1` (bash → PowerShell 번역) 은 키트에 검증본 없음. AI가 `templates/hooks/slack-session-summary.sh` 패턴 보고 PowerShell로 번역해서 작성. 핵심 변환:
-
-- stdin JSON: `$Input | Out-String | ConvertFrom-Json`
-- jq query → PowerShell `Where-Object` + `Select-Object`
-- curl → `Invoke-RestMethod`
-- `~/.claude/secrets/slack-jipsa.env` 로드 (sh 의 .env source 와 동일 로직)
+Windows Stop hook 도 이제 검증본입니다: `templates/windows/slack-session-summary.ps1` → `~/.claude/hooks/slack-session-summary.ps1` 카피. (sh 원본의 PowerShell 번역, AST parse 검증 통과. CI 의 lint 워크플로우가 회귀 감지.)
 
 ### D. AI 책임 — 모듈 2·3 폴더 트리거 watcher
 

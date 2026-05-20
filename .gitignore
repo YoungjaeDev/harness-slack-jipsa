@@ -25,6 +25,7 @@ coverage.xml
 secrets/
 sessions/
 .processed/
+audit/
 
 # 다른 세션 작업물 (키트 본체와 무관)
 TASK_PIPELINE.md

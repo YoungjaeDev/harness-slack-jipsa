@@ -6,6 +6,20 @@
 
 ---
 
+## ⚠️ 셋업 전 필수 확인 — 슬랙 메시지로 컴퓨터 임의 명령 실행이 가능합니다
+
+모듈 1·3·4 (슬랙 연동) 은 슬랙 채널의 메시지를 당신 컴퓨터에서 그대로 실행합니다 (`daemon.py`가 `claude --print --dangerously-skip-permissions --add-dir ~` 로 호출). 채널에 들어온 메시지가 파일 삭제·토큰 노출·임의 다운로드·외부 네트워크 호출을 시킬 수 있습니다.
+
+**셋업 전 다음 3개를 모두 확인하세요**:
+
+1. 이 봇이 작동할 슬랙 채널은 **본인 1인 비공개 채널**로 만든다
+2. 슬랙 워크스페이스 admin이 본인이거나 100% 신뢰할 수 있다 (admin은 비공개 채널 임의 join 가능)
+3. `.env` 파일 / `~/.claude/secrets/` 폴더를 GitHub·클립보드·다른 채팅에 절대 공유하지 않는다 (Bot Token 유출 = 해당 채널 누구나 명령 실행 가능)
+
+위 3개 중 하나라도 NO이면 모듈 1·3·4 셋업하지 마세요. 모듈 2 (폴더 트리거) 만 OK.
+
+---
+
 ## 무엇을 깔아주나요?
 
 이 키트는 4개 모듈로 구성됩니다. 필요한 것만 골라서 셋업하면 됩니다.
@@ -71,10 +85,13 @@ Claude가 자동으로:
 
 | 항목 | 비용 | 필요한 모듈 |
 |------|------|------------|
-| **Claude Code 구독** | $$ | 모든 모듈 |
+| **Claude Code 구독** | Pro 이상 권장 (Opus 사용량 기준) | 모든 모듈 |
+| **검증된 Claude Code 빌드** | 다음 플래그 모두 지원 필요: `hooks.Stop` · `--output-format text` · `--add-dir` · `--permission-mode bypassPermissions` · `--dangerously-skip-permissions` · `--session-id` · `--resume` · `--append-system-prompt`. 2026 초 이후의 안정 빌드 권장 | — |
+| **예상 월 비용 (추정 · 운영 환경 따라 다름)** | 가벼운 사용 (슬랙 일 5건 + 폴더 일 2건) 약 **$30~$80**, 헤비 (일 20건+) 약 **$100~$250**. Opus 4.x 가격 기준 단순 추정이므로 실제 청구는 본인 측정 필요 | — |
 | **슬랙 워크스페이스** (개인용 무료) | 무료 | 1, 3 |
 | **OS** | — | macOS / Windows / Linux 모두 지원 |
 
+> daemon은 매일 운영되며 슬랙 메시지·폴더 파일·세션 종료마다 Anthropic API 호출. `daemon.py:195`에서 `--model opus` 사용하므로 토큰 비용이 누적될 수 있음. 사용량 제한·청구 한도 인지 후 진행하세요.
 > 모든 모듈이 macOS·Windows·Linux 모두에서 작동합니다. AI가 사용자 OS를 묻고 자동으로 분기 처리합니다 (macOS=launchd, Windows=Task Scheduler + PowerShell, Linux=systemd).
 
 ---

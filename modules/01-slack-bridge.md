@@ -18,6 +18,16 @@
 - Claude Code 설치됨
 - 슬랙 워크스페이스 (개인 무료 가능)
 - Python 3.9+ (macOS 기본 `/usr/bin/python3`, Windows `py -3`, Linux `/usr/bin/python3`)
+- **SKILL.md Step 0 보안 확인 3개를 모두 YES로 답한 사용자**. (안 되어 있으면 먼저 SKILL.md로 돌아가서 확인)
+
+### 이미 부분 셋업되어 있는지 사전 점검 (AI)
+
+다음 파일이 이미 존재하면 해당 단계는 skip하세요 (멱등하지만 사용자에게 노이즈):
+- `~/.claude/scripts/lib/notion.py` 있음 → Step 8의 lib cp skip
+- `~/.claude/scripts/slack-jipsa/daemon.py` 있음 → Step 12 skip
+- `~/.claude/hooks/slack-session-summary.sh` 있음 → Step 15의 hook cp skip
+
+존재 확인은 `Test-Path` (Windows) 또는 `ls` (macOS/Linux).
 
 ---
 
@@ -196,16 +206,10 @@ cp templates/hooks/append_turn_raw.py ~/.claude/hooks/
 chmod +x ~/.claude/hooks/slack-session-summary.sh
 ```
 
-`~/.claude/settings.json` Read → 다음 형태로 수정 (기존 키 보존):
+`~/.claude/settings.json` Read → `hooks.Stop` 배열에만 append (기존 배열·키 보존):
 
 ```json
 {
-  "env": {
-    "SLACK_SESSION_WEBHOOK": "https://hooks.slack.com/services/...",
-    "NOTION_API_TOKEN": "",
-    "NOTION_SESSION_DB": "",
-    "NOTION_DAILY_DB": ""
-  },
   "hooks": {
     "Stop": [
       { "type": "command", "command": "$HOME/.claude/hooks/slack-session-summary.sh" }
@@ -214,11 +218,17 @@ chmod +x ~/.claude/hooks/slack-session-summary.sh
 }
 ```
 
-> Stop hook은 슬랙 webhook (`SLACK_SESSION_WEBHOOK`) 또는 노션 둘 다 비어있으면 조용히 종료. 사용자가 webhook을 만들지 않았으면 일단 빈 값. (모듈 1 만으로는 슬랙 보고 안 됨. 모듈 4 또는 webhook 추가 필요.)
+> **env 섹션 작성 불필요** — Stop hook이 `~/.claude/secrets/slack-jipsa.env` 를 직접 읽으므로, 이미 .env에 채워둔 토큰이 그대로 사용됩니다. settings.json `env`에 같은 토큰을 중복 작성하지 마세요 (drift 위험).
+>
+> Stop hook의 슬랙 전송 경로:
+> 1. `.env` 의 `SLACK_SESSION_WEBHOOK` 가 있으면 webhook 으로 (별도 채널/포맷 분리할 때)
+> 2. 없으면 `.env` 의 `SLACK_BOT_TOKEN` + `SLACK_CHANNEL` 로 자동 폴백 (모듈 1 완료 시 이미 채워져 있음 — 추가 작업 불필요)
+>
+> 노션 적재는 `.env` 의 `NOTION_API_TOKEN` + `NOTION_SESSION_DB` 가 채워지면 자동 (모듈 4 진행 후).
 
-#### Incoming Webhook 만드는 법 (선택)
+#### Incoming Webhook (선택)
 
-슬랙 앱 페이지 → "Incoming Webhooks" → ON → "Add New Webhook to Workspace" → 채널 선택 → URL 받기 → `SLACK_SESSION_WEBHOOK` 에 입력.
+분리된 채널/포맷으로 받고 싶을 때만. 모듈 1 완료만으로도 Bot Token 폴백으로 슬랙 보고가 옵니다. 굳이 만들 필요 없음.
 
 ### Step 16. 검증 2 — 클코 → 슬랙
 

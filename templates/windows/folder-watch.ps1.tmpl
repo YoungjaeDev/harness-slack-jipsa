@@ -1,0 +1,52 @@
+# Agent Bootstrap — 폴더 트리거 watcher (Windows)
+# 위치: $env:USERPROFILE\.claude\scripts\folder-watch\folder-watch.ps1
+# 변수 치환 필요: {WATCH_FOLDER}, {SCENARIO_PROMPT} (모듈 2 셋업 시)
+# Task Scheduler 가 -AtLogOn 으로 호출하여 상주.
+
+$ErrorActionPreference = "Stop"
+$WatchDir = "{WATCH_FOLDER}"
+$ProcessedDir = Join-Path $WatchDir ".processed"
+$LogDir = "$env:USERPROFILE\.claude\scripts\folder-watch\logs"
+New-Item -ItemType Directory -Force -Path $ProcessedDir | Out-Null
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+
+# .env 로드 (모듈 3 슬랙 알림 옵션에서 사용)
+$EnvFile = "$env:USERPROFILE\.claude\secrets\slack-jipsa.env"
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile -Encoding UTF8 | ForEach-Object {
+        if ($_ -match '^\s*([^#][^=]*?)\s*=\s*(.*)\s*$') {
+            Set-Item -Path "Env:$($matches[1])" -Value $matches[2]
+        }
+    }
+}
+
+function Process-File($filePath) {
+    $basename = Split-Path $filePath -Leaf
+    $log = Join-Path $LogDir "$(Get-Date -Format 'yyyy-MM-dd').log"
+    "[$(Get-Date -Format 'HH:mm:ss')] Processing: $basename" | Out-File -Append -Encoding UTF8 $log
+
+    $prompt = "{SCENARIO_PROMPT} $filePath"
+    claude --print --add-dir $WatchDir $prompt *>> $log
+
+    $newName = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$basename"
+    Move-Item $filePath (Join-Path $ProcessedDir $newName)
+}
+
+# 시작 시 이미 있는 파일 1회 정리 (dotfile 제외)
+Get-ChildItem -Path $WatchDir -File | Where-Object { -not $_.Name.StartsWith('.') } | ForEach-Object {
+    Process-File $_.FullName
+}
+
+# 실시간 watcher
+$fsw = New-Object IO.FileSystemWatcher $WatchDir, "*" -Property @{
+    IncludeSubdirectories = $false
+    NotifyFilter = [IO.NotifyFilters]'FileName, LastWrite'
+}
+Register-ObjectEvent $fsw Created -SourceIdentifier "FW-Created" -Action {
+    Start-Sleep -Seconds 2  # 파일 쓰기 완료 대기 (lock 회피)
+    if (Test-Path $Event.SourceEventArgs.FullPath) {
+        Process-File $Event.SourceEventArgs.FullPath
+    }
+} | Out-Null
+
+while ($true) { Start-Sleep -Seconds 60 }

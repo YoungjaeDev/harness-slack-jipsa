@@ -21,3 +21,9 @@ sessions/
 # 다른 세션 작업물 (키트 본체와 무관)
 TASK_PIPELINE.md
 REVIEW*.md
+
+# insane-build deck 산출물 (키트 본체와 무관)
+insane-build/
+
+# 세션 작업 메타데이터
+.omc/

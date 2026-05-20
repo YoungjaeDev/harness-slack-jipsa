@@ -144,10 +144,12 @@ tail -30 ~/.claude/scripts/folder-watch/logs/$(date +%Y-%m-%d).log
 
 ### 시나리오 ②: 음성 → STT
 
-전제: Whisper 또는 다른 STT 도구가 시스템에 설치되어 있어야. 또는 macOS 내장 받아쓰기 사용. 사용자에게 STT 도구 설치 여부 묻기.
+전제: **Whisper** 또는 다른 STT 도구가 시스템에 설치되어 있어야 합니다 (macOS 내장 `say`는 TTS이지 STT가 아니므로 사용 불가). 사용자에게 STT 도구 설치 여부 먼저 묻기:
+- `whisper --help` 동작 → 그대로 진행
+- 미설치 → `pip install openai-whisper` (FFmpeg 사전 설치 필요) 또는 시나리오 ①/③ 권장
 
 ```
-이 음성 파일을 텍스트로 변환해줘. macOS의 say 또는 설치된 STT 도구를 활용하고, 결과를 같은 이름의 .txt로 저장. 음성 파일:
+이 음성 파일을 텍스트로 변환해줘. whisper CLI (또는 openai-whisper Python 패키지) 를 활용하고, 결과를 같은 이름의 .txt로 저장. 음성 파일:
 ```
 
 ### 시나리오 ③: 마크다운 → 슬랙 알림

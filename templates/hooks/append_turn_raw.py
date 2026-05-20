@@ -33,6 +33,18 @@ def get_token():
     tok = os.environ.get("NOTION_API_TOKEN")
     if tok:
         return tok
+    # .env 단일 출처 폴백 (settings.json env 의존 제거)
+    env_path = os.path.expanduser("~/.claude/secrets/slack-jipsa.env")
+    if os.path.exists(env_path):
+        try:
+            for line in open(env_path, encoding="utf-8").read().splitlines():
+                if line.startswith("NOTION_API_TOKEN="):
+                    val = line.split("=", 1)[1].strip()
+                    if val:
+                        return val
+        except Exception:
+            pass
+    # legacy: settings.json env (deprecated, 호환성용)
     settings_path = os.path.expanduser("~/.claude/settings.json")
     if os.path.exists(settings_path):
         try:

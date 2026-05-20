@@ -38,12 +38,28 @@ description: 사용자에게 "내 컴퓨터에 사는 에이전트" 셋업을 1:
 - `templates/systemd-slack-jipsa.service.tmpl` (Linux)
 - `templates/systemd-folder-watch.path.tmpl` (Linux)
 - `templates/systemd-folder-watch.service.tmpl` (Linux)
+- `templates/windows/folder-watch.ps1.tmpl` (Windows — `{WATCH_FOLDER}` · `{SCENARIO_PROMPT}` 치환)
 
 `{USERNAME}`, `{HOME}`, `{WATCH_FOLDER}` 등 플레이스홀더를 실제 값으로 치환 후 사용자 환경에 Write.
 
-### C. AI 책임 — Windows 분기
+### C. Windows 검증 .ps1 (그대로 카피)
 
-Windows 등록용 .plist · systemd 동등 코드는 없습니다. AI가 위 검증 코드의 패턴 보고 PowerShell/Task Scheduler로 번역해서 사용자에게 안내하세요. 자세한 가이드는 아래 "OS별 분기 로직" 섹션.
+다음은 검증된 Windows 코드입니다. Copy-Item 으로 그대로 카피하세요:
+
+- `templates/windows/run-daemon.ps1` → `~/.claude/scripts/slack-jipsa/run-daemon.ps1` (.env 로드 + daemon.py 실행)
+- `templates/windows/register-slack-task.ps1` → 1회 실행 (Task Scheduler 등록)
+- `templates/windows/register-folder-task.ps1` → 1회 실행 (Folder watch 등록)
+
+`folder-watch.ps1` 본체는 위 B 카테고리 `.tmpl` 에서 치환 후 Write.
+
+### D. AI 책임 — Windows Stop hook 만 즉석 생성
+
+Windows용 `slack-session-summary.ps1` (bash → PowerShell 번역) 은 키트에 검증본 없음. AI가 `templates/hooks/slack-session-summary.sh` 패턴 보고 PowerShell로 번역해서 작성. 핵심 변환:
+
+- stdin JSON: `$Input | Out-String | ConvertFrom-Json`
+- jq query → PowerShell `Where-Object` + `Select-Object`
+- curl → `Invoke-RestMethod`
+- `~/.claude/secrets/slack-jipsa.env` 로드 (sh 의 .env source 와 동일 로직)
 
 ### D. AI 책임 — 모듈 2·3 폴더 트리거 watcher
 
@@ -51,8 +67,30 @@ Windows 등록용 .plist · systemd 동등 코드는 없습니다. AI가 위 검
 
 ## 사용자에게 처음 묻는 것
 
+### Step 0. 보안 확인 (모듈 1·3·4 선택자에게 필수)
+
+사용자에게:
 ```
-안녕하세요! 에이전트 셋업을 도와드릴게요. 먼저 몇 가지만 확인하겠습니다.
+안녕하세요! 셋업을 시작하기 전에, 모듈 1·3·4 (슬랙 연동)는 보안상 한 가지 사실을 먼저 확인할게요.
+
+이 봇은 슬랙 채널의 메시지를 당신 컴퓨터에서 그대로 실행합니다.
+즉, 채널에 들어온 메시지가 파일 삭제·토큰 노출·임의 다운로드를 시킬 수 있습니다.
+
+다음 3개를 모두 YES로 답하실 수 있나요?
+
+A) 봇이 작동할 슬랙 채널은 본인 1인 비공개 채널로 만들 예정이다 (Y/N)
+B) 슬랙 워크스페이스 admin이 본인이거나 100% 신뢰 가능하다 (Y/N)
+C) .env 파일 / 시크릿 폴더를 외부에 절대 공유하지 않을 자신이 있다 (Y/N)
+
+(셋 다 YES면 모듈 1·3·4 진행 가능. 하나라도 NO면 모듈 2 — 폴더 트리거 — 만 권장)
+```
+
+세 답 모두 YES 받기 전에는 모듈 1·3·4 셋업 진행 금지. NO 하나라도 있으면 사용자에게 이유 설명 후 모듈 2만 안내.
+
+### Step 1. 환경·모듈 확인
+
+```
+좋아요. 다음으로 환경 확인할게요.
 
 1. 어떤 OS 쓰세요? (맥 / 윈도우 / 리눅스)
 2. 어떤 모듈부터 셋업할까요?

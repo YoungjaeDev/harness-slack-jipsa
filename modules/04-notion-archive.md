@@ -20,6 +20,15 @@
 - 노션 계정
 - 노션 API integration 만들 수 있어야 (5분, 무료)
 
+### Step 5·6 skip 조건 (AI)
+
+모듈 1을 정상 완료했다면 Step 5 (lib 카피) · Step 6 (Stop hook 카피) 의 cp 명령은 이미 실행됨. 다음 파일 존재 확인 후 있으면 해당 단계 skip하고 Step 7 검증으로 점프:
+- `~/.claude/scripts/lib/notion.py`
+- `~/.claude/hooks/slack-session-summary.sh`
+- `~/.claude/hooks/append_turn_raw.py`
+
+모듈 4부터 먼저 시작한 사용자라면 모듈 1 완료 여부 먼저 확인 (`ls ~/.claude/secrets/slack-jipsa.env`). 모듈 1 안 됐으면 모듈 1로 돌려보내기.
+
 ---
 
 ## 단계별 안내
@@ -182,7 +191,7 @@ cp templates/hooks/append_turn_raw.py ~/.claude/hooks/
 chmod +x ~/.claude/hooks/slack-session-summary.sh
 ```
 
-`~/.claude/settings.json` Read → `hooks.Stop` 배열에 append (기존 hook 보존):
+모듈 1에서 Stop hook 이미 등록했다면 skip. 없으면 `~/.claude/settings.json` Read → `hooks.Stop` 배열에 append (기존 hook 보존):
 ```json
 {
   "type": "command",
@@ -190,17 +199,7 @@ chmod +x ~/.claude/hooks/slack-session-summary.sh
 }
 ```
 
-`env` 섹션에 추가:
-```json
-"env": {
-  "SLACK_SESSION_WEBHOOK": "https://hooks.slack.com/...",
-  "NOTION_API_TOKEN": "secret_...",
-  "NOTION_SESSION_DB": "...",
-  "NOTION_DAILY_DB": "..."
-}
-```
-
-> 또는 hook 내부에서 `~/.claude/secrets/slack-jipsa.env` 를 직접 읽도록 수정. 권장은 settings.json env (Claude Code가 자동 주입).
+> **env 섹션 작성 불필요** — Stop hook이 `~/.claude/secrets/slack-jipsa.env` 를 직접 읽으므로, Step 4에서 .env에 추가한 `NOTION_API_TOKEN` · `NOTION_SESSION_DB` · `NOTION_DAILY_DB` 가 그대로 사용됩니다. settings.json `env` 에 같은 토큰을 중복 작성하지 마세요 (drift 위험).
 
 ### Step 7. 검증
 

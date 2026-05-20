@@ -29,13 +29,24 @@ if [[ -n "${SLACK_HOOK_RUNNING:-}" ]]; then
 fi
 export SLACK_HOOK_RUNNING=1
 
+# .env 단일 출처 — settings.json env 의존 제거 (이중 관리 drift 방지)
+# settings.json env 보존 — 사용자가 거기 채워뒀어도 동작하지만, .env 값이 있으면 .env 우선.
+if [[ -f "$HOME/.claude/secrets/slack-jipsa.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$HOME/.claude/secrets/slack-jipsa.env" 2>/dev/null || true
+  set +a
+fi
+
 SLACK_URL="${SLACK_SESSION_WEBHOOK:-}"
 NOTION_TOKEN="${NOTION_API_TOKEN:-}"
 NOTION_DB="${NOTION_SESSION_DB:-}"
 NOTION_VERSION="${NOTION_VERSION:-2022-06-28}"
 
-if [[ -z "$SLACK_URL" && -z "$NOTION_TOKEN" ]]; then
-  exit 0  # 어떤 대상도 설정 없으면 조용히 종료
+# webhook · 노션 · Bot Token 폴백 셋 다 못 쓸 때만 조용히 종료
+if [[ -z "$SLACK_URL" && -z "$NOTION_TOKEN" \
+      && ( -z "${SLACK_BOT_TOKEN:-}" || -z "${SLACK_CHANNEL:-}" ) ]]; then
+  exit 0
 fi
 
 STDIN_JSON=$(cat)
@@ -260,6 +271,60 @@ SB
 
   curl -sS -X POST "$SLACK_URL" \
     -H 'Content-Type: application/json' \
+    -d "$SLACK_PAYLOAD" >/dev/null 2>&1 || true
+elif [[ -n "${SLACK_BOT_TOKEN:-}" && -n "${SLACK_CHANNEL:-}" ]]; then
+  # 폴백: webhook 없어도 .env의 Bot Token 으로 chat.postMessage
+  TS_HM=$(TZ=Asia/Seoul date '+%H:%M')
+  SHORT_SESSION="${SESSION_ID:0:8}"
+  SLACK_BODY=$(cat <<SB
+🎯 *시킨 일*
+${TASK}
+
+📝 *한 일*
+${ACTIONS_MD}
+
+🧠 *결과*
+${RESULT_TXT}
+
+⚠️ *확인 필요*
+${ACTION_ITEMS_MD}
+SB
+)
+  SLACK_BODY=$(printf '%s' "$SLACK_BODY" \
+    | sed -E 's/\*\*([^*]+)\*\*/*\1*/g' \
+    | sed -E 's/^[[:space:]]*#{1,6}[[:space:]]+(.+)$/*\1*/' \
+    | sed -E 's/\[([^][]+)\]\(([^)[:space:]]+)\)/<\2|\1>/g' \
+    | sed -E 's/~~([^~]+)~~/~\1~/g')
+
+  SLACK_PAYLOAD=$(jq -n \
+    --arg ch "$SLACK_CHANNEL" \
+    --arg project "$PROJECT_NAME" \
+    --arg cwd "$CWD" \
+    --arg ts "$TS_HM" \
+    --arg session "$SHORT_SESSION" \
+    --arg body "$SLACK_BODY" '
+    {
+      channel: $ch,
+      blocks: [
+        { type: "header", text: { type: "plain_text", text: "🤖 \($project)" } },
+        { type: "context", elements: [
+            { type: "mrkdwn", text: "⏰ \($ts) KST  ·  세션 `\($session)`" }
+          ]
+        },
+        { type: "divider" },
+        { type: "section", text: { type: "mrkdwn", text: $body } },
+        { type: "context", elements: [
+            { type: "mrkdwn", text: "📁 `\($cwd)`" }
+          ]
+        },
+        { type: "divider" }
+      ],
+      text: "Claude 턴 · \($project)"
+    }')
+
+  curl -sS -X POST https://slack.com/api/chat.postMessage \
+    -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+    -H 'Content-Type: application/json; charset=utf-8' \
     -d "$SLACK_PAYLOAD" >/dev/null 2>&1 || true
 fi
 

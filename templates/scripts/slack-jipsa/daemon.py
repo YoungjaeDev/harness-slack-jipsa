@@ -121,7 +121,24 @@ CHANNEL = ENV['SLACK_CHANNEL']
 CHANNEL_DIALOG = ENV.get('SLACK_CHANNEL_DIALOG', '')  # 두 봇 대화 채널 (옵션)
 # USER_SLACK_ID = 봇이 응답할 대상 사용자. (구 변수명 MIRI_USER_ID alias 지원)
 MIRI = ENV.get('USER_SLACK_ID') or ENV.get('MIRI_USER_ID', '')
-BOT = ENV['BOT_USER_ID']
+
+# BOT_USER_ID = 봇 자기 메시지 필터링용. 사용자가 .env에 안 채웠으면 auth.test 자동 조회 후 write-back.
+# 빈 BOT으로 부팅하면 is_self 체크 깨져 무한 루프 위험.
+BOT = ENV.get('BOT_USER_ID', '').strip()
+if not BOT:
+    try:
+        BOT = WebClient(token=BOT_TOKEN).auth_test()['user_id']
+        _env_text = SECRETS.read_text()
+        if 'BOT_USER_ID=' in _env_text:
+            _env_new = re.sub(r'(?m)^BOT_USER_ID=.*$', f'BOT_USER_ID={BOT}', _env_text)
+        else:
+            _env_new = _env_text.rstrip() + f'\nBOT_USER_ID={BOT}\n'
+        SECRETS.write_text(_env_new)
+        print(f'[daemon] auto-resolved BOT_USER_ID={BOT}', flush=True)
+    except Exception as _e:
+        print(f'[daemon] WARN: BOT_USER_ID auth.test failed: {_e}', flush=True)
+        BOT = ''  # 진행하되 is_self 체크 깨질 수 있음
+
 USER_NAME = ENV.get('USER_NAME', '사용자')
 BOT_NAME = ENV.get('SLACK_BOT_NAME', '슬랙 비서')
 DIALOG_TURN_LIMIT = 6  # 대화 채널에서 봇 자기 응답 최대 N턴 (무한루프 방지)

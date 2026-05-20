@@ -1,0 +1,38 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install dependencies
+        run: uv sync --extra test
+      - name: Run pytest with coverage
+        run: uv run pytest tests/ -q --cov=templates --cov-report=term --cov-report=xml
+      - name: py_compile validated Python files
+        shell: bash
+        run: |
+          python -m py_compile templates/scripts/slack-jipsa/*.py templates/lib/*.py templates/hooks/append_turn_raw.py
+      - name: bash -n shell hooks
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: bash -n templates/hooks/slack-session-summary.sh
+      - name: Upload coverage artifact
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml

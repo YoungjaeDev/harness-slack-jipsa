@@ -28,8 +28,12 @@ def run_claude(prompt: str, session_id: str, is_new: bool, timeout: int,
     ]
     cmd.extend(["--session-id", session_id] if is_new else ["--resume", session_id])
     cwd = str(Path.home() / ".claude/scripts/slack-jipsa")
+    # Windows 의 기본 ANSI 코드페이지 (cp949 등) 가 claude UTF-8 출력을
+    # decode 하다 reader thread 가 크래시하면 r.stdout=None 으로 흘러
+    # 호출부가 빈 응답으로 처리한다. encoding/errors 명시로 차단.
     return subprocess.run(
         cmd, input=prompt, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
         env=env, cwd=cwd, timeout=timeout,
     )
 

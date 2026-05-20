@@ -140,7 +140,13 @@ agent-bootstrap/
 
 ## Windows 사용자
 
-이 키트의 검증 코드는 macOS·Linux 기준입니다 (bash/Python/launchd). Windows에서는 AI가 검증 코드 패턴을 보고 PowerShell · Task Scheduler로 번역하면서 안내합니다. Python 부분(daemon.py, lib/*)은 OS 독립이라 그대로 작동.
+이 키트의 검증 코드는 macOS·Linux 기준입니다 (bash/Python/launchd). Windows 에서는 `templates/windows/` 의 검증본 PowerShell 스크립트를 카피해서 사용합니다 (Stop hook, folder-watch, register-task, daemon 부팅, cleanup 까지 검증본). Python 부분 (daemon.py, lib/*) 은 OS 독립이라 그대로 작동.
+
+---
+
+## 기여 / Contributing
+
+기여 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md), 행동 강령은 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) 참고.
 
 ---
 

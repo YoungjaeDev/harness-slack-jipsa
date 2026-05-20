@@ -1,0 +1,45 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck templates/hooks/*.sh
+
+  pscheck:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PowerShell AST parse
+        shell: pwsh
+        run: |
+          $files = @()
+          if (Test-Path templates/windows) {
+            $files += Get-ChildItem -Path templates/windows -Filter "*.ps1" -ErrorAction SilentlyContinue
+            $files += Get-ChildItem -Path templates/windows -Filter "*.ps1.tmpl" -ErrorAction SilentlyContinue
+          }
+          if ($files.Count -eq 0) {
+            Write-Host "No PowerShell files to check"
+            exit 0
+          }
+          $hasError = $false
+          foreach ($f in $files) {
+            $errors = $null; $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $f.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors -and $errors.Count -gt 0) {
+              Write-Host "FAIL: $($f.Name)"
+              $errors | ForEach-Object { Write-Host "  $($_.Message)" }
+              $hasError = $true
+            } else {
+              Write-Host "OK: $($f.Name)"
+            }
+          }
+          if ($hasError) { exit 1 }

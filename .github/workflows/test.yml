@@ -1,0 +1,46 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Windows GHA runner 의 기본 stdout 인코딩이 cp1252 라 한글 로그 출력 시
+      # UnicodeEncodeError 발생. 모든 OS 에서 UTF-8 강제.
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install dependencies
+        run: uv sync --extra test
+      - name: Run pytest with coverage
+        run: uv run pytest tests/ -q --cov=templates --cov-report=term --cov-report=xml
+      - name: py_compile validated Python files
+        shell: bash
+        run: |
+          python -m py_compile templates/scripts/slack-jipsa/*.py templates/lib/*.py templates/hooks/append_turn_raw.py
+      - name: bash -n shell hooks
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: bash -n templates/hooks/slack-session-summary.sh
+      - name: Upload coverage artifact
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        # GitHub artifact storage quota 초과 시 job 전체가 fail 로 표시되는 걸 방지.
+        # 커버리지 업로드 실패는 정보성 — 테스트가 통과했다면 PR 머지를 막을 이유 없음.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml

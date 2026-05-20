@@ -31,7 +31,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `templates/launchd-*.plist.tmpl` | `~/Library/LaunchAgents/com.{USERNAME}.*.plist` |
 | `templates/systemd-*.tmpl` | `~/.config/systemd/user/*.service|.path` |
 
-추가로 사용자 머신에서만 생성되는 디렉토리: `~/.claude/scripts/slack-jipsa/{logs,sessions}`, `~/.claude/scripts/folder-watch/{logs,locks}`, `~/.claude/scripts/slack-jipsa-shared/`.
+추가로 사용자 머신에서만 생성되는 디렉토리: `~/.claude/scripts/slack-jipsa/{logs,sessions,audit}`, `~/.claude/scripts/folder-watch/{logs,locks}`, `~/.claude/scripts/slack-jipsa-shared/`.
+
+## daemon 내부 모듈 구조 (cleanup 후)
+
+`templates/scripts/slack-jipsa/` 안 모듈 책임:
+
+| 파일 | 책임 |
+|------|------|
+| `daemon.py` | entry point (`load_env` → `JipsaDaemon.start`). ~68줄 |
+| `jipsa_daemon.py` | `JipsaDaemon` 클래스 — state + handle_message 오케스트레이션 |
+| `filters.py` | 메시지 필터 (is_self / is_miri / discussion 키워드) |
+| `session_storage.py` | 채널별 session_id 조회·생성·리셋 |
+| `claude_invoker.py` | subprocess `claude --print` 호출 + resume fallback |
+| `notion_logger.py` | 한 턴 Notion DB 적재 + 모듈 1 의존성 체크 |
+| `slack_io.py` | chat_postMessage / reaction add·remove 래퍼 |
+| `security_monitor.py` | 채널 멤버 변화 감지 (--dangerously-skip-permissions risk 완화) |
+| `audit_logger.py` | claude --print 호출 audit log (sha256 hash + 길이만) |
+| `logging_config.py` | TimedRotatingFileHandler 셋업 |
+
+위 모듈을 수정할 때는 [docs/superpowers/specs/2026-05-20-agent-bootstrap-cleanup-design.md](docs/superpowers/specs/2026-05-20-agent-bootstrap-cleanup-design.md) 의 책임 분리 원칙 + [docs/superpowers/plans/2026-05-20-agent-bootstrap-cleanup.md](docs/superpowers/plans/2026-05-20-agent-bootstrap-cleanup.md) 의 task 단위를 참고.
 
 ## 모듈 의존성
 

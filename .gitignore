@@ -13,10 +13,19 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.venv/
+*.egg-info/
+
 # 사용자 환경에서 생성된 파일
 secrets/
 sessions/
 .processed/
+audit/
 
 # 다른 세션 작업물 (키트 본체와 무관)
 TASK_PIPELINE.md

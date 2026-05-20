@@ -20,6 +20,8 @@
 - 노션 계정
 - 노션 API integration 만들 수 있어야 (5분, 무료)
 
+> **기존 설치 사용자**: settings.json env → .env 통일 마이그레이션이 필요합니다. [.env 단일화 마이그레이션](migration-env-singularization.md) 참고 (5분).
+
 ### Step 5·6 skip 조건 (AI)
 
 모듈 1을 정상 완료했다면 Step 5 (lib 카피) · Step 6 (Stop hook 카피) 의 cp 명령은 이미 실행됨. 다음 파일 존재 확인 후 있으면 해당 단계 skip하고 Step 7 검증으로 점프:

@@ -133,15 +133,20 @@ def test_build_prompt_adds_ctx_when_buffer_has_history(daemon):
 # ---- _handle_reply ----
 
 def test_handle_reply_skip_branch(daemon, mock_web_client):
-    daemon._handle_reply("C0MAIN", "1.0", "", "SKIP because other bot's turn")
+    out = daemon._handle_reply("C0MAIN", "1.0", "", "SKIP because other bot's turn")
+    assert out is None
     mock_web_client.chat_postMessage.assert_not_called()
 
 
 def test_handle_reply_silent_fail_branch(daemon, mock_web_client):
-    daemon._handle_reply("C0MAIN", "1.0", "", "__SILENT_FAIL__")
+    out = daemon._handle_reply("C0MAIN", "1.0", "", "__SILENT_FAIL__")
+    assert out is None
     mock_web_client.chat_postMessage.assert_not_called()
 
 
-def test_handle_reply_normal_branch_posts(daemon, mock_web_client):
-    daemon._handle_reply("C0MAIN", "1.0", "", "정상 응답입니다")
+def test_handle_reply_normal_branch_posts_and_returns_clean_text(daemon, mock_web_client):
+    out = daemon._handle_reply("C0MAIN", "1.0", "", "정상 응답입니다")
     mock_web_client.chat_postMessage.assert_called_once()
+    # to_mrkdwn 변환된 텍스트가 리턴되어야 Notion 적재본과 슬랙 본문이 일치
+    assert isinstance(out, str)
+    assert "정상 응답입니다" in out

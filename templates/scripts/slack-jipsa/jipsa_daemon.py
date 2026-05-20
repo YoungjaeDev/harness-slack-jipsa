@@ -190,11 +190,16 @@ class JipsaDaemon:
             )
         return _cb
 
-    def _handle_reply(self, channel: str, ts: str, thread_ts: str, reply: str) -> None:
+    def _handle_reply(self, channel: str, ts: str, thread_ts: str,
+                      reply: str) -> str | None:
+        """슬랙에 게시한 텍스트 (to_mrkdwn 변환 후) 를 리턴. SKIP/empty/FAIL → None.
+
+        리턴값은 Notion 적재본을 슬랙·shared_buffer 본문과 동기화하기 위해 사용.
+        """
         if reply.strip().upper().startswith("SKIP"):
             logger.info("SKIP — other bot's turn")
             slack_io.swap_reaction(self.web, channel, ts, "hourglass_flowing_sand", "eyes")
-            return
+            return None
 
         if not reply.strip() or reply.strip() == "__SILENT_FAIL__":
             is_fail = reply.strip() == "__SILENT_FAIL__"
@@ -203,7 +208,7 @@ class JipsaDaemon:
                 self.web, channel, ts, "hourglass_flowing_sand",
                 "warning" if is_fail else "speech_balloon",
             )
-            return
+            return None
 
         try:
             from lib.slack_mrkdwn import to_mrkdwn
@@ -224,6 +229,7 @@ class JipsaDaemon:
 
         slack_io.swap_reaction(self.web, channel, ts, "hourglass_flowing_sand",
                                "white_check_mark")
+        return reply_clean
 
     # -------- Message handler (dispatcher) --------
     def handle_message(self, event: dict) -> None:
@@ -267,17 +273,15 @@ class JipsaDaemon:
             on_invoke=self._audit_callback(prompt),
         )
         logger.info("reply: %s", reply[:80])
-        self._handle_reply(c["channel"], c["ts"], c["thread_ts"], reply)
-
-        rstr = reply.strip()
-        if not rstr or rstr == "__SILENT_FAIL__" or rstr.upper().startswith("SKIP"):
+        posted = self._handle_reply(c["channel"], c["ts"], c["thread_ts"], reply)
+        if posted is None:
             return
 
         try:
             sid_for_log, _ = get_or_create_session(c["channel"], self.sessions_dir)
             threading.Thread(
                 target=notion_log_turn,
-                args=(c["channel"], c["ts"], c["text"], reply, sid_for_log, "opus"),
+                args=(c["channel"], c["ts"], c["text"], posted, sid_for_log, "opus"),
                 kwargs={
                     "session_db": self.notion_session_db,
                     "daily_db": self.notion_daily_db,

@@ -36,3 +36,6 @@ insane-build/
 
 # 세션 작업 메타데이터
 .omc/
+
+# superpowers 작업물 (spec / plan / brainstorming 결과는 로컬 노트)
+docs/superpowers/

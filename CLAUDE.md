@@ -50,7 +50,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `audit_logger.py` | claude --print 호출 audit log (sha256 hash + 길이만) |
 | `logging_config.py` | TimedRotatingFileHandler 셋업 |
 
-위 모듈을 수정할 때는 [docs/superpowers/specs/2026-05-20-agent-bootstrap-cleanup-design.md](docs/superpowers/specs/2026-05-20-agent-bootstrap-cleanup-design.md) 의 책임 분리 원칙 + [docs/superpowers/plans/2026-05-20-agent-bootstrap-cleanup.md](docs/superpowers/plans/2026-05-20-agent-bootstrap-cleanup.md) 의 task 단위를 참고.
+위 모듈을 수정할 때 책임 분리 원칙:
+- 각 모듈 100-150 줄 이하 목표. 한 파일 = 한 책임.
+- 글로벌 mutable state 금지. 인스턴스 attr + threading.RLock 으로 격리.
+- 외부 라이브러리 의존 (slack_sdk, urllib) 는 `slack_io.py`, `notion_logger.py` 같은 어댑터 모듈에만 가둠.
+- 새 모듈 추가 시 `jipsa_daemon.py` 의 import 순서 위에 같은 패턴으로 결합 + 테스트 파일 1:1 동반.
 
 ## 모듈 의존성
 

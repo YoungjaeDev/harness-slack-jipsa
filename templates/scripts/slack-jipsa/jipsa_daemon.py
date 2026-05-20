@@ -117,7 +117,7 @@ class JipsaDaemon:
         if not p.exists():
             return []
         out: list[dict] = []
-        for line in p.read_text().splitlines()[-self.SHARED_BUFFER_LIMIT:]:
+        for line in p.read_text(encoding="utf-8").splitlines()[-self.SHARED_BUFFER_LIMIT:]:
             try:
                 out.append(json.loads(line))
             except Exception:

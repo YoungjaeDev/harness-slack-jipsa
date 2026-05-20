@@ -13,6 +13,14 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.venv/
+*.egg-info/
+
 # 사용자 환경에서 생성된 파일
 secrets/
 sessions/

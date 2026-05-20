@@ -1,0 +1,22 @@
+[project]
+name = "harness-jipsa-tests"
+version = "0.1.0"
+description = "Test harness for the harness-jipsa setup kit (not the kit itself)"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "pytest-mock>=3.12",
+    "slack_sdk>=3.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-ra -q"
+
+[tool.coverage.run]
+source = ["templates"]
+omit = ["**/__pycache__/*", "tests/*"]

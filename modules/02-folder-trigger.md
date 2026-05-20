@@ -327,3 +327,29 @@ loginctl enable-linger $(whoami)
 |------|------|
 | Path unit 안 발동 | `systemctl --user status folder-watch.path` 로 상태. `journalctl --user -u folder-watch.service` 로 실행 로그 |
 | inotify 한계 | `/proc/sys/fs/inotify/max_user_watches` 확인. 보통 충분 |
+
+---
+
+## 운영 — 처리 완료 파일 정리
+
+폴더 트리거가 처리 끝난 파일을 `.processed/` 로 옮깁니다. 누적되니 주기적 정리 권장.
+
+### Windows
+`templates/windows/cleanup-processed.ps1` 을 `~/.claude/scripts/cleanup-processed.ps1` 로 카피 후 월 1회 schtask:
+
+```powershell
+schtasks /Create /SC MONTHLY /D 1 /TN "AgentBootstrap-CleanupProcessed" `
+  /TR "pwsh -File C:\Users\$env:USERNAME\.claude\scripts\cleanup-processed.ps1" /F
+```
+
+dry-run 으로 미리 확인:
+```powershell
+pwsh -File ~/.claude/scripts/cleanup-processed.ps1 -DryRun
+```
+
+### macOS / Linux
+간단한 cron 으로 같은 효과:
+```bash
+# crontab -e — 매월 1일 03:00
+0 3 1 * * find ~/.claude/scripts/folder-watch/*/.processed -type f -mtime +90 -delete
+```

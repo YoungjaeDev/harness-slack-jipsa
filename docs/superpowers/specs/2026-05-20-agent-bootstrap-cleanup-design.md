@@ -424,7 +424,7 @@ def test_bot_user_id_auto_resolve(fake_env, mock_web_client):
 
 ### F.2 `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1 한국어 번역)
 
-표준 본문 그대로. 연락처 = repo 메인테이너 이메일 (사용자 ingbeeeded@gmail.com).
+표준 본문 그대로. 연락처 = repo 메인테이너 (Code of Conduct 본문의 placeholder 자리에 maintainer 가 본인 채널을 채움).
 
 ### F.3 README 하단 링크
 

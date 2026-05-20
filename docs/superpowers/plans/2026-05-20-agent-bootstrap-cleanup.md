@@ -2470,7 +2470,7 @@ git commit -m "docs: add Korean CONTRIBUTING.md"
 
 학대·괴롭힘 또는 기타 용납할 수 없는 행동의 사례는 집행을 담당하는 커뮤니티 리더에게 다음 연락처로 보고할 수 있습니다:
 
-**ingbeeeded@gmail.com**
+**(repo 메인테이너 — Code of Conduct 작성 시 본인 연락처로 교체)**
 
 모든 불만은 신속하고 공정하게 검토·조사됩니다.
 

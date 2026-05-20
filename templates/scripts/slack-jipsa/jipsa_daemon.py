@@ -1,14 +1,13 @@
 """JipsaDaemon: 슬랙↔클로드 코드 daemon 클래스.
 
 글로벌 mutable state 를 인스턴스 attr 로 격리. handle_message 오케스트레이션은
-filters / claude_invoker / notion_logger / slack_io 의 모듈 함수 위임.
+filters / claude_invoker / notion_logger / slack_io / shared_buffer 모듈 함수 위임.
 """
 from __future__ import annotations
 
 import json
 import logging
 import re
-import sys
 import threading
 import time
 from pathlib import Path
@@ -19,13 +18,8 @@ from slack_sdk.socket_mode import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 
-# fcntl 은 Unix 전용. Windows 에서는 file locking skip.
-try:
-    import fcntl  # type: ignore
-except ImportError:
-    fcntl = None  # type: ignore
-
 import filters
+import shared_buffer
 import slack_io
 from audit_logger import AuditLogger
 from claude_invoker import call_claude
@@ -35,12 +29,13 @@ from session_storage import get_or_create_session, reset_session
 
 logger = logging.getLogger("jipsa.daemon")
 
+RESET_KEYWORDS = {"리셋", "새세션", "새 세션", "reset", "!reset", "!리셋"}
+
 
 class JipsaDaemon:
     """슬랙↔클로드 코드 daemon. instance state 로 글로벌 격리."""
 
     DIALOG_TURN_LIMIT = 6
-    SHARED_BUFFER_LIMIT = 30
 
     def __init__(self, env: dict, sessions_dir: Path, logs_dir: Path,
                  shared_dir: Path, secrets_path: Path, system_prompt: str,
@@ -107,53 +102,128 @@ class JipsaDaemon:
         except Exception as e:
             logger.warning("discussion_state write failed: %s", e)
 
-    # -------- Shared cross-bot conversation buffer --------
-    def _shared_buffer_path(self, channel: str, thread_ts: str = "") -> Path:
-        key = f"slack_{channel}_{thread_ts or 'root'}"
-        return self.shared_dir / f"{key}.jsonl"
+    # -------- Filters & dispatch helpers --------
+    def _apply_filters(self, event: dict) -> tuple[bool, dict] | None:
+        text = (event.get("text") or "").strip()
+        channel = event.get("channel", "")
+        ts = event.get("ts", "")
+        user = event.get("user", "")
+        bot_id = event.get("bot_id", "")
 
-    def load_shared(self, channel: str, thread_ts: str = "") -> list[dict]:
-        p = self._shared_buffer_path(channel, thread_ts)
-        if not p.exists():
-            return []
-        out: list[dict] = []
-        for line in p.read_text(encoding="utf-8").splitlines()[-self.SHARED_BUFFER_LIMIT:]:
-            try:
-                out.append(json.loads(line))
-            except Exception:
-                pass
-        return out
+        if not text:
+            return None
+        if channel != self.channel and channel != self.channel_dialog:
+            return None
 
-    def append_shared(self, channel: str, thread_ts: str, who: str, text: str,
-                      msg_ts: str = "") -> None:
-        """msg_ts 가 같은 항목은 중복 적재 안 함."""
-        p = self._shared_buffer_path(channel, thread_ts)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        record = {
-            "ts": time.time(),
-            "msg_ts": msg_ts,
-            "who": who,
-            "text": (text or "")[:2000],
+        is_dialog = (channel == self.channel_dialog)
+        is_miri = filters.is_miri(event, self.miri)
+        is_self = filters.is_self(event, self.bot) or (bot_id == self.bot)
+        is_other_bot = (
+            not is_miri and not is_self
+            and user.startswith("U") and user != self.miri
+        )
+
+        if is_self:
+            return None
+        if not is_dialog and not is_miri:
+            return None
+
+        return is_dialog, {
+            "channel": channel, "ts": ts, "text": text,
+            "is_miri": is_miri, "is_other_bot": is_other_bot,
+            "thread_ts": event.get("thread_ts", ""),
         }
+
+    def _toggle_discussion(self, channel: str, text: str) -> None:
+        with self.state_lock:
+            if filters.matches_discussion_stop(text):
+                self.discussion_mode[channel] = False
+                logger.info("discussion mode OFF (stop keyword)")
+            elif filters.matches_discussion_trigger(text):
+                self.discussion_mode[channel] = True
+                self.dialog_self_turn_count = 0
+                logger.info("discussion mode ON (trigger keyword)")
+            else:
+                was_on = self.discussion_mode.get(channel, False)
+                self.discussion_mode[channel] = False
+                self.dialog_self_turn_count = 0
+                if was_on:
+                    logger.info("discussion mode OFF (new topic from user)")
+        self._write_discussion_state()
+
+    def _check_other_bot_continue(self, channel: str) -> bool:
+        with self.state_lock:
+            if not self.discussion_mode.get(channel):
+                logger.info("other-bot, discussion OFF — skip")
+                return False
+            if self.dialog_self_turn_count >= self.DIALOG_TURN_LIMIT:
+                logger.info("dialog turn limit — auto-stop")
+                self.discussion_mode[channel] = False
+                self._write_discussion_state()
+                return False
+        return True
+
+    def _build_prompt(self, channel: str, thread_ts: str, text: str) -> str:
+        shared = shared_buffer.load(self.shared_dir, channel, thread_ts)
+        if not shared or len(shared) <= 1:
+            return text
+        ctx_lines = [f"## 최근 대화 맥락 ({self.user_name}·Claude·다른 봇 모두 포함)"]
+        for h in shared[-15:-1]:
+            ctx_lines.append(f"[{h.get('who','?')}] {h.get('text','')[:400]}")
+        ctx_lines.append("")
+        ctx_lines.append("## 현재 메시지")
+        ctx_lines.append(text)
+        return "\n".join(ctx_lines)
+
+    def _who_label(self, ctx: dict) -> str:
+        if ctx["is_miri"]:
+            return self.user_name
+        if ctx["is_other_bot"]:
+            return "other-bot"
+        return "?"
+
+    def _audit_callback(self, prompt: str):
+        def _cb(ch, sid, lin, lout):
+            self.audit.log_invocation(
+                channel=ch, session_id=sid, prompt=prompt,
+                result_len=lout, status=("ok" if lout > 0 else "fail"),
+            )
+        return _cb
+
+    def _handle_reply(self, channel: str, ts: str, thread_ts: str, reply: str) -> None:
+        if reply.strip().upper().startswith("SKIP"):
+            logger.info("SKIP — other bot's turn")
+            slack_io.swap_reaction(self.web, channel, ts, "hourglass_flowing_sand", "eyes")
+            return
+
+        if not reply.strip() or reply.strip() == "__SILENT_FAIL__":
+            is_fail = reply.strip() == "__SILENT_FAIL__"
+            logger.info("empty/fail reply (fail=%s)", is_fail)
+            slack_io.swap_reaction(
+                self.web, channel, ts, "hourglass_flowing_sand",
+                "warning" if is_fail else "speech_balloon",
+            )
+            return
+
         try:
-            with p.open("a+", encoding="utf-8") as f:
-                if fcntl is not None:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                try:
-                    if msg_ts:
-                        f.seek(0)
-                        for line in f.read().splitlines()[-50:]:
-                            try:
-                                if json.loads(line).get("msg_ts") == msg_ts:
-                                    return
-                            except Exception:
-                                pass
-                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                finally:
-                    if fcntl is not None:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        except Exception as e:
-            logger.warning("append_shared failed: %s", e)
+            from lib.slack_mrkdwn import to_mrkdwn
+            reply_clean = to_mrkdwn(reply)
+        except Exception:
+            reply_clean = reply
+
+        res = slack_io.post_message(self.web, channel, reply_clean)
+        if res and channel == self.channel_dialog:
+            with self.state_lock:
+                self.dialog_self_turn_count += 1
+
+        if res:
+            shared_buffer.append(
+                self.shared_dir, channel, thread_ts, "클코", reply_clean,
+                msg_ts=str(res.get("ts", "") or ""),
+            )
+
+        slack_io.swap_reaction(self.web, channel, ts, "hourglass_flowing_sand",
+                               "white_check_mark")
 
     # -------- Message handler --------
     def handle_message(self, event: dict) -> None:
@@ -203,7 +273,8 @@ class JipsaDaemon:
         # Other-bot 발화: discussion 모드 켜진 경우에만 응답
         if is_other_bot:
             thread_ts_only = event.get("thread_ts", "")
-            self.append_shared(channel, thread_ts_only, "other-bot", text, msg_ts=ts)
+            shared_buffer.append(self.shared_dir, channel, thread_ts_only,
+                                 "other-bot", text, msg_ts=ts)
             with self.state_lock:
                 if not self.discussion_mode.get(channel):
                     logger.info("other-bot message, discussion OFF — skip response")
@@ -231,10 +302,11 @@ class JipsaDaemon:
 
         thread_ts = event.get("thread_ts", "")
         who_label = self.user_name if is_miri else ("other-bot" if is_other_bot else "?")
-        self.append_shared(channel, thread_ts, who_label, text, msg_ts=ts)
+        shared_buffer.append(self.shared_dir, channel, thread_ts, who_label,
+                             text, msg_ts=ts)
 
         # 공유 버퍼 → prompt prefix (cross-channel 맥락)
-        shared = self.load_shared(channel, thread_ts)
+        shared = shared_buffer.load(self.shared_dir, channel, thread_ts)
         prompt_with_ctx = text
         if shared and len(shared) > 1:
             ctx_lines = [f"## 최근 대화 맥락 ({self.user_name}·Claude·다른 봇 모두 포함)"]
@@ -287,8 +359,8 @@ class JipsaDaemon:
                 self.dialog_self_turn_count += 1
 
         if res:
-            self.append_shared(channel, thread_ts, "클코", reply_clean,
-                               msg_ts=str(res.get("ts", "") or ""))
+            shared_buffer.append(self.shared_dir, channel, thread_ts, "클코",
+                                 reply_clean, msg_ts=str(res.get("ts", "") or ""))
 
         # ⏳ → ✅
         slack_io.swap_reaction(self.web, channel, ts, "hourglass_flowing_sand",

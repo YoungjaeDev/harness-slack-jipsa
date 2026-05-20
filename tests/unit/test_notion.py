@@ -61,3 +61,76 @@ class TestMaskSecrets:
 
 def test_sanitize_for_waf_is_alias():
     assert notion.sanitize_for_waf("ntn_abcdefghij1234567890XYZ") == "[REDACTED]"
+
+
+class TestNotionRequest:
+    """notion_request retry / backoff behavior.
+
+    notion_request 는 raise 하지 않고 _error_payload 를 반환한다.
+    success: parsed dict. failure: {"_error": True, "method", "path", "status"|"reason", ...}.
+    """
+
+    def _http_error(self, code: int, body: bytes = b'{"message":"x"}', retry_after: str | None = None):
+        import urllib.error
+        headers = {}
+        if retry_after is not None:
+            headers["Retry-After"] = retry_after
+        err = urllib.error.HTTPError(
+            url="https://api.notion.com/v1/users",
+            code=code,
+            msg="x",
+            hdrs=headers,
+            fp=None,
+        )
+        err.read = lambda: body
+        return err
+
+    def test_retries_on_429_then_succeeds(self, mocker, monkeypatch):
+        monkeypatch.setenv("NOTION_API_TOKEN", "secret_test_token_abcdefghij")
+        mocker.patch("notion.time.sleep")
+
+        # 1st: 429, 2nd: 200
+        mock_200 = mocker.MagicMock()
+        mock_200.read.return_value = b'{"results": [], "ok": true}'
+        mock_200.status = 200
+        cm_200 = mocker.MagicMock()
+        cm_200.__enter__ = lambda self: mock_200
+        cm_200.__exit__ = lambda *a: False
+
+        call_count = [0]
+        def side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise self._http_error(429, retry_after="0")
+            return cm_200
+
+        mocker.patch("urllib.request.urlopen", side_effect=side_effect)
+        result = notion.notion_request("GET", "/v1/users", max_retries=2)
+        assert result.get("ok") is True
+        assert call_count[0] == 2
+
+    def test_returns_error_payload_on_400_no_retry(self, mocker, monkeypatch):
+        monkeypatch.setenv("NOTION_API_TOKEN", "secret_test_token_abcdefghij")
+        mocker.patch("notion.time.sleep")
+        mocker.patch("urllib.request.urlopen", side_effect=self._http_error(400))
+        result = notion.notion_request("GET", "/v1/users", max_retries=2)
+        assert result.get("_error") is True
+        assert result.get("status") == 400
+
+    def test_returns_error_payload_after_max_retries_on_5xx(self, mocker, monkeypatch):
+        monkeypatch.setenv("NOTION_API_TOKEN", "secret_test_token_abcdefghij")
+        mocker.patch("notion.time.sleep")
+        mocker.patch("urllib.request.urlopen", side_effect=self._http_error(500))
+        result = notion.notion_request("GET", "/v1/users", max_retries=1)
+        assert result.get("_error") is True
+        assert result.get("status") == 500
+
+    def test_token_not_in_logs(self, mocker, monkeypatch, capsys):
+        token = "secret_supersecrettokenabcdefghij1234"
+        monkeypatch.setenv("NOTION_API_TOKEN", token)
+        mocker.patch("notion.time.sleep")
+        mocker.patch("urllib.request.urlopen", side_effect=self._http_error(400))
+        notion.notion_request("GET", "/v1/users", max_retries=0)
+        captured = capsys.readouterr()
+        assert token not in captured.err
+        assert token not in captured.out

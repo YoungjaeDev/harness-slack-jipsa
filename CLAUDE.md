@@ -53,7 +53,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 파일 | 책임 |
 |------|------|
 | `daemon.py` | entry point (`load_env` → `JipsaDaemon.start`). ~68줄 |
-| `jipsa_daemon.py` | `JipsaDaemon` 클래스 — state + handle_message 오케스트레이션 |
+| `jipsa_daemon.py` | `JipsaDaemon` 클래스 — `handle_message` dispatcher + 7 helper (`_apply_filters` / `_toggle_discussion` / `_check_other_bot_continue` / `_build_prompt` / `_who_label` / `_audit_callback` / `_handle_reply`). state + 오케스트레이션 |
 | `filters.py` | 메시지 필터 (is_self / is_miri / discussion 키워드) |
 | `session_storage.py` | 채널별 session_id 조회·생성·리셋 |
 | `claude_invoker.py` | subprocess `claude --print` 호출 + resume fallback |
@@ -61,6 +61,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `slack_io.py` | chat_postMessage / reaction add·remove 래퍼 |
 | `security_monitor.py` | 채널 멤버 변화 감지 (--dangerously-skip-permissions risk 완화) |
 | `audit_logger.py` | claude --print 호출 audit log (sha256 hash + 길이만) |
+| `shared_buffer.py` | stateless 파일 기반 채널 공유 버퍼 (`load` / `append`). `jipsa_daemon` 이 위임 |
 | `logging_config.py` | TimedRotatingFileHandler 셋업 |
 
 위 모듈을 수정할 때 책임 분리 원칙:

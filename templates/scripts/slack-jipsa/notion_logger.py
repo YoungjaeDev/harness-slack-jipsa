@@ -12,9 +12,14 @@ logger = logging.getLogger(__name__)
 
 
 def verify_module1_setup() -> bool:
-    """모듈 4는 모듈 1 의존. .env + lib 존재 확인. 누락 시 warning + False."""
+    """모듈 4는 모듈 1 의존. .env + lib 존재 확인. 누락 시 warning + False.
+
+    인스턴스(글로벌 / 프로젝트) 별로 SECRETS 경로가 다르므로
+    SLACK_JIPSA_INSTANCE 환경변수 기반으로 검사 (기본값 = "slack-jipsa").
+    """
+    instance = os.environ.get("SLACK_JIPSA_INSTANCE", "slack-jipsa")
     required = [
-        Path.home() / ".claude/secrets/slack-jipsa.env",
+        Path.home() / f".claude/secrets/{instance}.env",
         Path.home() / ".claude/scripts/lib/notion.py",
     ]
     missing = [p for p in required if not p.exists()]
@@ -86,12 +91,16 @@ def _build_properties(channel: str, event_ts: str, user_text: str, reply_text: s
     def _trim(s: str, n: int = 1900) -> str:
         return (s or "")[:n]
 
+    # 프로젝트 모드면 PROJECT_DIR (사용자 절대경로) 를, 글로벌이면 기존 daemon 위치를.
+    project_dir = os.environ.get("PROJECT_DIR", "").strip()
+    instance = os.environ.get("SLACK_JIPSA_INSTANCE", "slack-jipsa")
+    cwd_for_log = project_dir or str(Path.home() / f".claude/scripts/{instance}")
     properties = {
         "프로젝트": {"title": [{"text": {"content": f"{bot_name} (슬랙)"}}]},
         "시각": {"date": {"start": ts_iso}},
         "세션 ID": {"rich_text": [{"text": {"content": session_id}}]},
         "작업 디렉토리": {
-            "rich_text": [{"text": {"content": str(Path.home() / ".claude/scripts/slack-jipsa")}}],
+            "rich_text": [{"text": {"content": cwd_for_log}}],
         },
         "시킨 일": {"rich_text": [{"text": {"content": _trim(user_text)}}]},
         "한 일": {"rich_text": [{"text": {"content": _trim(reply_text)}}]},

@@ -27,11 +27,47 @@ $env:SLACK_HOOK_RUNNING = '1'
 # CLAUDE_SKIP_HOOKS=1 (daemon 이 호출한 claude --print) 일 때 skip
 if ($env:CLAUDE_SKIP_HOOKS -eq '1') { exit 0 }
 
-# ── 2) .env 로드 ────────────────────────────────────────────────────
-$envFile = Join-Path $env:USERPROFILE '.claude\secrets\slack-jipsa.env'
-if (-not (Test-Path $envFile)) { exit 0 }
+# ── 2) stdin JSON 선읽기 → 인스턴스 매핑 → .env 로드 ────────────────
+# stdin 은 한 번만 읽을 수 있으므로 여기서 먼저 받고 아래 4) 에서 재사용.
+$STDIN_JSON = [Console]::In.ReadToEnd()
 
-Get-Content $envFile -Encoding UTF8 | ForEach-Object {
+$stdinCwd = ''
+if ($STDIN_JSON) {
+    try {
+        $stdinObj = $STDIN_JSON | ConvertFrom-Json
+        if ($stdinObj.cwd) { $stdinCwd = [string]$stdinObj.cwd }
+    } catch { }
+}
+
+# projects.json 의 등록 프로젝트 중 cwd 와 prefix match. 가장 긴 path → id.
+$instance = 'slack-jipsa'
+$projectsJson = Join-Path $env:USERPROFILE '.claude\scripts\slack-jipsa-shared\projects.json'
+if ($stdinCwd -and (Test-Path -LiteralPath $projectsJson)) {
+    try {
+        $projectsData = Get-Content -LiteralPath $projectsJson -Encoding UTF8 -Raw | ConvertFrom-Json
+        $cwdNorm = $stdinCwd -replace '\\', '/'
+        $matched = @($projectsData.projects) |
+            Where-Object { $_ -and $_.path -and $_.id } |
+            Where-Object {
+                $p = ($_.path -replace '\\', '/')
+                ($cwdNorm -eq $p) -or $cwdNorm.StartsWith($p + '/')
+            } |
+            Sort-Object { ($_.path -replace '\\', '/').Length } -Descending |
+            Select-Object -First 1
+        if ($matched) {
+            $instance = "slack-jipsa-$($matched.id)"
+        }
+    } catch { }
+}
+
+$envFile = Join-Path $env:USERPROFILE ".claude\secrets\$instance.env"
+if (-not (Test-Path -LiteralPath $envFile)) {
+    # 프로젝트 인스턴스 .env 가 없으면 글로벌로 폴백 (호환성).
+    $envFile = Join-Path $env:USERPROFILE '.claude\secrets\slack-jipsa.env'
+}
+if (-not (Test-Path -LiteralPath $envFile)) { exit 0 }
+
+Get-Content -LiteralPath $envFile -Encoding UTF8 | ForEach-Object {
     $line = $_.Trim()
     if (-not $line -or $line.StartsWith('#')) { return }
     if ($line -match '^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$') {
@@ -49,14 +85,13 @@ $userName = if ($env:USER_NAME) { $env:USER_NAME } else { '사용자' }
 # webhook · Bot Token 둘 다 없으면 조용히 종료
 if (-not $slackUrl -and (-not $botToken -or -not $channel)) { exit 0 }
 
-# ── 3) stdin JSON 파싱 ──────────────────────────────────────────────
-$STDIN_JSON = [Console]::In.ReadToEnd()
+# ── 3) stdin JSON 파싱 (위 2 에서 이미 읽음, 재사용) ────────────────
 if (-not $STDIN_JSON) { exit 0 }
 
 try {
     $stdinObj = $STDIN_JSON | ConvertFrom-Json
     $sessionId = $stdinObj.session_id
-    $cwd = $stdinObj.cwd
+    $cwd = if ($stdinCwd) { $stdinCwd } else { $stdinObj.cwd }
 } catch {
     exit 0
 }

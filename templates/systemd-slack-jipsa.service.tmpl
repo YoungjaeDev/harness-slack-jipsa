@@ -1,15 +1,24 @@
+# Agent Bootstrap — Slack Jipsa daemon (systemd user unit)
+#
+# 파일명:
+#   글로벌:    ~/.config/systemd/user/slack-jipsa.service
+#   프로젝트:  ~/.config/systemd/user/slack-jipsa-{PROJECT_ID}.service
+#
+# 플레이스홀더:
+#   {INSTANCE}  글로벌이면 "slack-jipsa", 프로젝트 모드면 "slack-jipsa-{PROJECT_ID}"
 [Unit]
-Description=Agent Bootstrap — Slack Jipsa daemon
+Description=Agent Bootstrap — Slack Jipsa daemon ({INSTANCE})
 After=default.target
 
 [Service]
 Type=simple
-EnvironmentFile=%h/.claude/secrets/slack-jipsa.env
-ExecStart=/usr/bin/python3 %h/.claude/scripts/slack-jipsa/daemon.py
+Environment=SLACK_JIPSA_INSTANCE={INSTANCE}
+EnvironmentFile=%h/.claude/secrets/{INSTANCE}.env
+ExecStart=/usr/bin/python3 %h/.claude/scripts/{INSTANCE}/daemon.py
 Restart=always
 RestartSec=5
-StandardOutput=append:%h/.claude/scripts/slack-jipsa/logs/systemd.out
-StandardError=append:%h/.claude/scripts/slack-jipsa/logs/systemd.err
+StandardOutput=append:%h/.claude/scripts/{INSTANCE}/logs/systemd.out
+StandardError=append:%h/.claude/scripts/{INSTANCE}/logs/systemd.err
 
 [Install]
 WantedBy=default.target

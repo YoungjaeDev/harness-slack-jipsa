@@ -2,17 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
 Agent Bootstrap — Slack daemon launchd
-파일: ~/Library/LaunchAgents/com.{USERNAME}.slack-jipsa.plist
+파일: ~/Library/LaunchAgents/com.{USERNAME}.slack-jipsa{PROJECT_SUFFIX}.plist
+
+플레이스홀더:
+  {USERNAME}        whoami 결과
+  {HOME}            $HOME
+  {INSTANCE}        글로벌이면 "slack-jipsa", 프로젝트 모드면 "slack-jipsa-{PROJECT_ID}"
+  {PROJECT_SUFFIX}  글로벌이면 빈 문자열, 프로젝트 모드면 "-{PROJECT_ID}"
 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.{USERNAME}.slack-jipsa</string>
+    <string>com.{USERNAME}.slack-jipsa{PROJECT_SUFFIX}</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>{HOME}/.claude/scripts/slack-jipsa/run.sh</string>
+        <string>{HOME}/.claude/scripts/{INSTANCE}/run.sh</string>
     </array>
 
     <key>RunAtLoad</key>
@@ -22,15 +28,17 @@ Agent Bootstrap — Slack daemon launchd
     <true/>
 
     <key>StandardOutPath</key>
-    <string>{HOME}/.claude/scripts/slack-jipsa/logs/launchd.out</string>
+    <string>{HOME}/.claude/scripts/{INSTANCE}/logs/launchd.out</string>
 
     <key>StandardErrorPath</key>
-    <string>{HOME}/.claude/scripts/slack-jipsa/logs/launchd.err</string>
+    <string>{HOME}/.claude/scripts/{INSTANCE}/logs/launchd.err</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>SLACK_JIPSA_INSTANCE</key>
+        <string>{INSTANCE}</string>
     </dict>
 </dict>
 </plist>

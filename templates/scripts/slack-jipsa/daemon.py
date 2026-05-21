@@ -39,7 +39,10 @@ def load_env(secrets: Path) -> dict[str, str]:
     return env
 
 
-def build_system_prompt(user_name: str, bot_name: str, cwd_hint: str) -> str:
+def build_system_prompt(user_name: str, bot_name: str, cwd_hint: str | None = None) -> str:
+    # 글로벌(기존) 호출자 호환: cwd_hint 생략 시 기존 daemon 디렉토리.
+    if not cwd_hint:
+        cwd_hint = str(Path.home() / ".claude/scripts/slack-jipsa")
     return (
         f"당신은 {user_name}님의 슬랙 비서 '{bot_name}'입니다.\n\n"
         f"**환경**: 이 세션은 슬랙 헤드리스(claude --print, 환경변수 SLACK_BOT_TRIGGERED=1)입니다.\n"

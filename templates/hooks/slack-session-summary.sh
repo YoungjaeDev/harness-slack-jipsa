@@ -60,7 +60,10 @@ fi
 # .env 단일 출처 — settings.json env 의존 제거 (이중 관리 drift 방지)
 if [[ -f "$ENV_FILE" ]]; then
   set -a
-  # shellcheck disable=SC1091
+  # SC1090: source 경로가 동적(인스턴스에 따라 결정) — 의도된 동작.
+  # SC1091: 외부 파일이라 shellcheck 가 못 따라감 — 의도된 동작.
+  # shellcheck source=/dev/null
+  # shellcheck disable=SC1090,SC1091
   source "$ENV_FILE" 2>/dev/null || true
   set +a
 fi

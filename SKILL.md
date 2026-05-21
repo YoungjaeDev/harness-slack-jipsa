@@ -121,6 +121,30 @@ C) .env 파일 / 시크릿 폴더를 외부에 절대 공유하지 않을 자신
 - **Claude Code 미설치** → 먼저 설치 안내. https://docs.claude.com/claude-code 링크 전달
 - **준비 완료** → 선택한 모듈의 `modules/0?-*.md` 파일을 Read하고 진행 시작
 
+### Step 1.1. 사용자 홈 경로 한글/공백 검사 (필수)
+
+OS 답변을 받은 직후 (모듈 진행 전) `$HOME` (Windows: `%USERPROFILE%`) 에 한글이나 공백이 섞여 있는지 확인합니다. Windows 사용자명·프로젝트 경로·WATCH_FOLDER 에 한글/공백이 섞이면 PowerShell quoting 이 자주 깨집니다.
+
+검사:
+- macOS / Linux: `echo "$HOME"` 결과를 정규식 `[^\x20-\x7e]` 또는 공백으로 검사
+- Windows: `$env:USERPROFILE` 결과를 동일 정규식으로 검사
+
+한글이나 공백이 발견되면 사용자에게 한 번만 안내 (셋업은 계속):
+```
+감지: 사용자 홈 경로에 한글 또는 공백이 포함되어 있어요 ({실제 경로}).
+진행 자체는 가능하지만, PowerShell 명령에서 quoting 이슈가 생기기 쉬워 더 신중히 진행할게요.
+이후 단계에서 명령이 실패하면 quoting 문제일 가능성이 높습니다 — 알려주세요.
+```
+
+발견 시 AI는 이후 모든 PowerShell 명령에서 다음 규칙을 보수적으로 적용:
+- 경로 변수는 항상 큰따옴표로 quote: `"$WatchDir"`, `"$env:USERPROFILE\..."`
+- 외부 exe 호출은 call operator (`& "C:\path with space\exe.exe" arg`) 사용
+- `Test-Path` 등 PowerShell cmdlet 은 `-LiteralPath` 우선 사용
+- 다중 줄 인자는 single-quoted here-string (`@'...'@`) 으로 묶기
+- `git log --% --format=...` 처럼 `--` 또는 `--%` (stop-parsing) 로 인자 경계 명시
+
+한글/공백이 없으면 별도 안내 없이 다음 단계로.
+
 ## OS별 분기 로직
 
 모든 모듈은 OS별로 다른 도구를 씁니다. 사용자에게는 차이를 노출하지 말고, 당신이 알아서 분기 처리하세요.

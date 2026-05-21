@@ -37,6 +37,19 @@ Claude가 자동 처리할 "받은편지함" 같은 폴더를 만들 거예요.
 
 답변 받으면 `{WATCH_FOLDER}` 변수에 저장.
 
+#### 한글/공백 검사 (AI 책임)
+
+답변 경로에 한글 또는 공백이 섞여 있는지 정규식 `[^\x20-\x7e]` 또는 공백으로 검사. 발견 시 사용자에게 한 번만 안내 (진행은 계속):
+
+```
+감지: 선택하신 폴더 경로에 한글 또는 공백이 포함되어 있어요 ({실제 경로}).
+진행 자체는 가능하지만, PowerShell 명령에서 quoting 이슈가 생기기 쉬워
+더 신중히 진행할게요. 이후 단계에서 명령이 실패하면 quoting 문제일
+가능성이 높으니 알려주세요.
+```
+
+이후 모든 watcher / launchd / Task Scheduler 명령 생성 시 [SKILL.md Step 1.1](../SKILL.md) 의 PowerShell quoting 규칙 (큰따옴표, call operator, `-LiteralPath`, here-string, `--%`) 을 보수적으로 적용. 특히 Windows `folder-watch.ps1` 의 `claude --print` 호출은 항상 `"$WatchDir"`, `"$prompt"`, `"$log"` 로 모든 변수를 quote.
+
 ### Step 2. 처리 시나리오 선택
 
 사용자에게:
@@ -208,15 +221,16 @@ $ProcessedDir = Join-Path $WatchDir ".processed"
 $LogDir = "$env:USERPROFILE\.claude\scripts\folder-watch\logs"
 
 function Process-File($filePath) {
-    $basename = Split-Path $filePath -Leaf
+    $basename = Split-Path -LiteralPath $filePath -Leaf
     $log = Join-Path $LogDir "$(Get-Date -Format 'yyyy-MM-dd').log"
-    "[$(Get-Date -Format 'HH:mm:ss')] Processing: $basename" | Out-File -Append $log
+    "[$(Get-Date -Format 'HH:mm:ss')] Processing: $basename" | Out-File -Append -LiteralPath $log
 
+    # WATCH_FOLDER · 파일명에 한글/공백이 있어도 안전하도록 모든 인자 quote + `--` 로 옵션 종료
     $prompt = "{SCENARIO_PROMPT} $filePath"
-    claude --print --add-dir $WatchDir $prompt *>> $log
+    claude --print --add-dir "$WatchDir" -- "$prompt" *>> "$log"
 
     $newName = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$basename"
-    Move-Item $filePath (Join-Path $ProcessedDir $newName)
+    Move-Item -LiteralPath $filePath -Destination (Join-Path $ProcessedDir $newName)
 }
 
 # 시작 시 이미 있는 파일 한 번 정리

@@ -58,7 +58,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `session_storage.py` | 채널별 session_id 조회·생성·리셋 |
 | `claude_invoker.py` | subprocess `claude --print` 호출 + resume fallback |
 | `notion_logger.py` | 한 턴 Notion DB 적재 + 모듈 1 의존성 체크 |
-| `slack_io.py` | chat_postMessage / reaction add·remove 래퍼 |
+| `slack_io.py` | WebClient factory (`make_web_client`, retry handler 포함) + chat_postMessage / reaction add·remove 래퍼 |
 | `security_monitor.py` | 채널 멤버 변화 감지 (--dangerously-skip-permissions risk 완화) |
 | `audit_logger.py` | claude --print 호출 audit log (sha256 hash + 길이만) |
 | `shared_buffer.py` | stateless 파일 기반 채널 공유 버퍼 (`load` / `append`). `jipsa_daemon` 이 위임 |

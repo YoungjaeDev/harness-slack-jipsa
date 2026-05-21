@@ -13,11 +13,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from slack_sdk import WebClient
-from slack_sdk.http_retry.builtin_handlers import (
-    ConnectionErrorRetryHandler,
-    RateLimitErrorRetryHandler,
-)
 from slack_sdk.socket_mode import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
@@ -62,10 +57,7 @@ class JipsaDaemon:
         self.notion_daily_db = env.get("NOTION_DAILY_DB", "")
         self.claude_timeout = int(env.get("CLAUDE_TIMEOUT_SEC", "900"))
 
-        self.web = WebClient(token=self.bot_token)
-        # 429 / 네트워크 일시 장애 자동 재시도 (Retry-After 헤더 존중)
-        self.web.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
-        self.web.retry_handlers.append(ConnectionErrorRetryHandler(max_retry_count=3))
+        self.web = slack_io.make_web_client(self.bot_token)
         self.bot = self._resolve_bot_user_id(env.get("BOT_USER_ID", "").strip())
         self.sock = SocketModeClient(app_token=self.app_token, web_client=self.web)
 
@@ -324,6 +316,11 @@ class JipsaDaemon:
         """daemon 시작. member monitor + sock 연결."""
         try:
             interval = int(self.env.get("SECURITY_MONITOR_INTERVAL", "3600"))
+            if interval <= 0:
+                logger.warning(
+                    "SECURITY_MONITOR_INTERVAL must be positive, using default 3600",
+                )
+                interval = 3600
             self.member_monitor.start_periodic(interval_sec=interval)
         except Exception as e:
             logger.warning("member monitor start failed: %s", e)

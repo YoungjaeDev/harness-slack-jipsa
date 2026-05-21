@@ -1,13 +1,29 @@
 """Slack Web API 래퍼: chat.postMessage, reactions.add/remove.
 
 cosmetic 작업 (reaction) 은 실패 시 silent. 본 메시지 게시는 warning 후 None.
+WebClient 인스턴스 생성도 여기에 가둠 — slack_sdk 의존을 어댑터 모듈로 제한.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from slack_sdk import WebClient
+from slack_sdk.http_retry.builtin_handlers import (
+    ConnectionErrorRetryHandler,
+    RateLimitErrorRetryHandler,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def make_web_client(token: str) -> WebClient:
+    """WebClient with built-in 429 / connection retry handlers."""
+    client = WebClient(token=token)
+    # 429 / 네트워크 일시 장애 자동 재시도 (Retry-After 헤더 존중)
+    client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
+    client.retry_handlers.append(ConnectionErrorRetryHandler(max_retry_count=3))
+    return client
 
 
 def post_message(web, channel: str, text: str,

@@ -41,7 +41,7 @@ INSTANCE="slack-jipsa"
 if [[ -n "$STDIN_CWD" && -f "$PROJECTS_JSON" ]]; then
   MATCHED_ID=$(jq -r --arg cwd "$STDIN_CWD" '
     .projects // []
-    | map(select(($cwd | startswith(.path)) or ($cwd | startswith(.path + "/"))))
+    | map(select(($cwd == .path) or ($cwd | startswith(.path + "/"))))
     | sort_by(.path | length)
     | last
     | .id // empty

@@ -216,16 +216,27 @@ class JipsaDaemon:
         except Exception:
             reply_clean = reply
 
-        res = slack_io.post_message(self.web, channel, reply_clean)
-        if res and channel == self.channel_dialog:
+        # 1) thread_ts 가 있는 메시지는 같은 스레드에 응답해야 함 (없으면 채널 루트로 빠짐).
+        # 2) post_message 실패 (res falsy) 시 Slack 엔 아무것도 안 올라간 상태이므로
+        #    shared_buffer / Notion 에도 기록하면 안 됨. warning reaction 으로 알리고 None 반환.
+        res = slack_io.post_message(
+            self.web, channel, reply_clean,
+            thread_ts=thread_ts or None,
+        )
+        if not res:
+            slack_io.swap_reaction(
+                self.web, channel, ts, "hourglass_flowing_sand", "warning",
+            )
+            return None
+
+        if channel == self.channel_dialog:
             with self.state_lock:
                 self.dialog_self_turn_count += 1
 
-        if res:
-            shared_buffer.append(
-                self.shared_dir, channel, thread_ts, "클코", reply_clean,
-                msg_ts=str(res.get("ts", "") or ""),
-            )
+        shared_buffer.append(
+            self.shared_dir, channel, thread_ts, "클코", reply_clean,
+            msg_ts=str(res.get("ts", "") or ""),
+        )
 
         slack_io.swap_reaction(self.web, channel, ts, "hourglass_flowing_sand",
                                "white_check_mark")

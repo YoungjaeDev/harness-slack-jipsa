@@ -147,6 +147,46 @@ def test_handle_reply_silent_fail_branch(daemon, mock_web_client):
 def test_handle_reply_normal_branch_posts_and_returns_clean_text(daemon, mock_web_client):
     out = daemon._handle_reply("C0MAIN", "1.0", "", "정상 응답입니다")
     mock_web_client.chat_postMessage.assert_called_once()
+    called = mock_web_client.chat_postMessage.call_args
+    assert called.kwargs["channel"] == "C0MAIN"
+    assert "정상 응답입니다" in called.kwargs["text"]
+    # thread_ts 가 빈 문자열이면 post_message 호출에 None 또는 미전달.
+    assert called.kwargs.get("thread_ts") in (None, "")
     # to_mrkdwn 변환된 텍스트가 리턴되어야 Notion 적재본과 슬랙 본문이 일치
     assert isinstance(out, str)
     assert "정상 응답입니다" in out
+
+
+def test_handle_reply_threaded_message_replies_in_same_thread(daemon, mock_web_client):
+    """thread_ts 가 있으면 post_message 에 그대로 전달되어 같은 스레드에 답글.
+
+    회귀 방지: 직전 구조에서 thread_ts 인자를 받기만 하고 post_message 에
+    전달하지 않아 스레드 응답이 채널 루트로 빠지던 버그.
+    """
+    daemon._handle_reply("C0MAIN", "1.5", "1700000000.000050", "스레드 응답")
+    called = mock_web_client.chat_postMessage.call_args
+    assert called.kwargs.get("thread_ts") == "1700000000.000050"
+
+
+def test_handle_reply_returns_none_when_post_fails(daemon, mock_web_client, mocker):
+    """post_message 가 falsy 면 Slack 에 안 올라간 것이므로 _handle_reply 가
+    None 반환 + warning reaction. 호출자는 shared_buffer / Notion 기록을 건너뜀.
+
+    회귀 방지: 직전 구조에서 res falsy 라도 white_check_mark 로 swap 하고
+    reply_clean 을 리턴해 Slack/Notion 기록 불일치.
+    """
+    # slack_io.post_message 가 None 리턴하도록 직접 patch (실제 web mock 이
+    # 예외/falsy 를 흉내내는 것보다 명시적).
+    mocker.patch(
+        "jipsa_daemon.slack_io.post_message",
+        return_value=None,
+    )
+    swap_spy = mocker.patch("jipsa_daemon.slack_io.swap_reaction")
+
+    out = daemon._handle_reply("C0MAIN", "1.0", "", "응답")
+
+    assert out is None
+    swap_spy.assert_called_once()
+    args = swap_spy.call_args.args
+    # swap_reaction(web, channel, ts, from_name, to_name) 의 to_name 이 "warning"
+    assert args[-1] == "warning"

@@ -39,10 +39,16 @@ STDIN_CWD=$(printf '%s' "$PRE_STDIN_JSON" | jq -r '.cwd // empty' 2>/dev/null)
 
 INSTANCE="slack-jipsa"
 if [[ -n "$STDIN_CWD" && -f "$PROJECTS_JSON" ]]; then
+  # trailing slash 가 .path 끝에 붙어 있어도 같은 결과를 내도록 정규화.
+  # 예: .path="/Users/x/proj/" 와 cwd="/Users/x/proj/src" 가 매칭되어야 함.
+  # startswith 안에서 .p 직접 참조 시 pipe 컨텍스트 . 가 $c(string) 로 바뀌어
+  # "Cannot index string with string p" 에러가 나므로 .p 를 변수로 캡처.
   MATCHED_ID=$(jq -r --arg cwd "$STDIN_CWD" '
-    .projects // []
-    | map(select(($cwd == .path) or ($cwd | startswith(.path + "/"))))
-    | sort_by(.path | length)
+    ($cwd | sub("/+$"; "")) as $c
+    | .projects // []
+    | map({id: .id, p: (.path | sub("/+$"; ""))})
+    | map(select(.p as $pp | ($c == $pp) or ($c | startswith($pp + "/"))))
+    | sort_by(.p | length)
     | last
     | .id // empty
   ' "$PROJECTS_JSON" 2>/dev/null)

@@ -47,14 +47,16 @@ $projectsJson = Join-Path $env:USERPROFILE '.claude\scripts\slack-jipsa-shared\p
 if ($stdinCwd -and (Test-Path -LiteralPath $projectsJson)) {
     try {
         $projectsData = Get-Content -LiteralPath $projectsJson -Encoding UTF8 -Raw | ConvertFrom-Json
-        $cwdNorm = ($stdinCwd -replace '\\', '/').ToLowerInvariant()
+        # trailing slash 가 양쪽에 섞여 있어도 같은 결과를 내도록 TrimEnd 로 정규화.
+        # projects.json 의 path 가 "C:/Dev/Foo/" 처럼 끝나도 cwd "C:/Dev/Foo/src" 와 매칭.
+        $cwdNorm = ($stdinCwd -replace '\\', '/').TrimEnd('/').ToLowerInvariant()
         $matched = @($projectsData.projects) |
             Where-Object { $_ -and $_.path -and $_.id } |
             Where-Object {
-                $p = ($_.path -replace '\\', '/').ToLowerInvariant()
+                $p = ($_.path -replace '\\', '/').TrimEnd('/').ToLowerInvariant()
                 ($cwdNorm -eq $p) -or $cwdNorm.StartsWith($p + '/')
             } |
-            Sort-Object { ($_.path -replace '\\', '/').Length } -Descending |
+            Sort-Object { ($_.path -replace '\\', '/').TrimEnd('/').Length } -Descending |
             Select-Object -First 1
         if ($matched) {
             $instance = "slack-jipsa-$($matched.id)"

@@ -1,14 +1,13 @@
 """JipsaDaemon: 슬랙↔클로드 코드 daemon 클래스.
 
 글로벌 mutable state 를 인스턴스 attr 로 격리. handle_message 오케스트레이션은
-filters / claude_invoker / notion_logger / slack_io 의 모듈 함수 위임.
+filters / claude_invoker / notion_logger / slack_io / shared_buffer 모듈 함수 위임.
 """
 from __future__ import annotations
 
 import json
 import logging
 import re
-import sys
 import threading
 import time
 from pathlib import Path
@@ -19,13 +18,8 @@ from slack_sdk.socket_mode import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 
-# fcntl 은 Unix 전용. Windows 에서는 file locking skip.
-try:
-    import fcntl  # type: ignore
-except ImportError:
-    fcntl = None  # type: ignore
-
 import filters
+import shared_buffer
 import slack_io
 from audit_logger import AuditLogger
 from claude_invoker import call_claude
@@ -35,12 +29,13 @@ from session_storage import get_or_create_session, reset_session
 
 logger = logging.getLogger("jipsa.daemon")
 
+RESET_KEYWORDS = {"리셋", "새세션", "새 세션", "reset", "!reset", "!리셋"}
+
 
 class JipsaDaemon:
     """슬랙↔클로드 코드 daemon. instance state 로 글로벌 격리."""
 
     DIALOG_TURN_LIMIT = 6
-    SHARED_BUFFER_LIMIT = 30
 
     def __init__(self, env: dict, sessions_dir: Path, logs_dir: Path,
                  shared_dir: Path, secrets_path: Path, system_prompt: str,
@@ -107,57 +102,8 @@ class JipsaDaemon:
         except Exception as e:
             logger.warning("discussion_state write failed: %s", e)
 
-    # -------- Shared cross-bot conversation buffer --------
-    def _shared_buffer_path(self, channel: str, thread_ts: str = "") -> Path:
-        key = f"slack_{channel}_{thread_ts or 'root'}"
-        return self.shared_dir / f"{key}.jsonl"
-
-    def load_shared(self, channel: str, thread_ts: str = "") -> list[dict]:
-        p = self._shared_buffer_path(channel, thread_ts)
-        if not p.exists():
-            return []
-        out: list[dict] = []
-        for line in p.read_text(encoding="utf-8").splitlines()[-self.SHARED_BUFFER_LIMIT:]:
-            try:
-                out.append(json.loads(line))
-            except Exception:
-                pass
-        return out
-
-    def append_shared(self, channel: str, thread_ts: str, who: str, text: str,
-                      msg_ts: str = "") -> None:
-        """msg_ts 가 같은 항목은 중복 적재 안 함."""
-        p = self._shared_buffer_path(channel, thread_ts)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        record = {
-            "ts": time.time(),
-            "msg_ts": msg_ts,
-            "who": who,
-            "text": (text or "")[:2000],
-        }
-        try:
-            with p.open("a+", encoding="utf-8") as f:
-                if fcntl is not None:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                try:
-                    if msg_ts:
-                        f.seek(0)
-                        for line in f.read().splitlines()[-50:]:
-                            try:
-                                if json.loads(line).get("msg_ts") == msg_ts:
-                                    return
-                            except Exception:
-                                pass
-                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                finally:
-                    if fcntl is not None:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        except Exception as e:
-            logger.warning("append_shared failed: %s", e)
-
-    # -------- Message handler --------
-    def handle_message(self, event: dict) -> None:
-        """사용자 메시지 처리 + (대화 채널이면) 다른 봇 메시지에도 반응."""
+    # -------- Filters & dispatch helpers --------
+    def _apply_filters(self, event: dict) -> tuple[bool, dict] | None:
         text = (event.get("text") or "").strip()
         channel = event.get("channel", "")
         ts = event.get("ts", "")
@@ -165,9 +111,9 @@ class JipsaDaemon:
         bot_id = event.get("bot_id", "")
 
         if not text:
-            return
+            return None
         if channel != self.channel and channel != self.channel_dialog:
-            return
+            return None
 
         is_dialog = (channel == self.channel_dialog)
         is_miri = filters.is_miri(event, self.miri)
@@ -178,128 +124,175 @@ class JipsaDaemon:
         )
 
         if is_self:
-            return
+            return None
         if not is_dialog and not is_miri:
-            return
+            return None
 
-        # Discussion mode (사용자 발화 기준 ON/OFF)
-        if is_dialog and is_miri:
-            with self.state_lock:
-                if filters.matches_discussion_stop(text):
-                    self.discussion_mode[channel] = False
-                    logger.info("discussion mode OFF (stop keyword)")
-                elif filters.matches_discussion_trigger(text):
-                    self.discussion_mode[channel] = True
-                    self.dialog_self_turn_count = 0
-                    logger.info("discussion mode ON (trigger keyword)")
-                else:
-                    was_on = self.discussion_mode.get(channel, False)
-                    self.discussion_mode[channel] = False
-                    self.dialog_self_turn_count = 0
-                    if was_on:
-                        logger.info("discussion mode OFF (new topic from user)")
-            self._write_discussion_state()
+        return is_dialog, {
+            "channel": channel, "ts": ts, "text": text,
+            "is_miri": is_miri, "is_other_bot": is_other_bot,
+            "thread_ts": event.get("thread_ts", ""),
+        }
 
-        # Other-bot 발화: discussion 모드 켜진 경우에만 응답
-        if is_other_bot:
-            thread_ts_only = event.get("thread_ts", "")
-            self.append_shared(channel, thread_ts_only, "other-bot", text, msg_ts=ts)
-            with self.state_lock:
-                if not self.discussion_mode.get(channel):
-                    logger.info("other-bot message, discussion OFF — skip response")
-                    return
-                if self.dialog_self_turn_count >= self.DIALOG_TURN_LIMIT:
-                    logger.info("dialog turn limit (%d) — auto-stop discussion",
-                                self.DIALOG_TURN_LIMIT)
-                    self.discussion_mode[channel] = False
-                    self._write_discussion_state()
-                    return
-                turn = self.dialog_self_turn_count
-            logger.info("discussion ON — respond to other-bot (turn %d/%d)",
-                        turn, self.DIALOG_TURN_LIMIT)
+    def _toggle_discussion(self, channel: str, text: str) -> None:
+        with self.state_lock:
+            if filters.matches_discussion_stop(text):
+                self.discussion_mode[channel] = False
+                logger.info("discussion mode OFF (stop keyword)")
+            elif filters.matches_discussion_trigger(text):
+                self.discussion_mode[channel] = True
+                self.dialog_self_turn_count = 0
+                logger.info("discussion mode ON (trigger keyword)")
+            else:
+                was_on = self.discussion_mode.get(channel, False)
+                self.discussion_mode[channel] = False
+                self.dialog_self_turn_count = 0
+                if was_on:
+                    logger.info("discussion mode OFF (new topic from user)")
+        self._write_discussion_state()
 
-        # 명령어: 리셋 / 새세션 / reset
-        if text.strip().lower() in ("리셋", "새세션", "새 세션", "reset", "!reset", "!리셋"):
-            new_sid = reset_session(channel, self.sessions_dir)
-            slack_io.post_message(self.web, channel, f"🔄 새 세션 시작 (`{new_sid[:8]}`)")
-            return
+    def _check_other_bot_continue(self, channel: str) -> bool:
+        with self.state_lock:
+            if not self.discussion_mode.get(channel):
+                logger.info("other-bot, discussion OFF — skip")
+                return False
+            if self.dialog_self_turn_count >= self.DIALOG_TURN_LIMIT:
+                logger.info("dialog turn limit — auto-stop")
+                self.discussion_mode[channel] = False
+                self._write_discussion_state()
+                return False
+        return True
 
-        logger.info("msg: %s", text[:80])
+    def _build_prompt(self, channel: str, thread_ts: str, text: str) -> str:
+        shared = shared_buffer.load(self.shared_dir, channel, thread_ts)
+        if not shared or len(shared) <= 1:
+            return text
+        ctx_lines = [f"## 최근 대화 맥락 ({self.user_name}·Claude·다른 봇 모두 포함)"]
+        for h in shared[-15:-1]:
+            ctx_lines.append(f"[{h.get('who','?')}] {h.get('text','')[:400]}")
+        ctx_lines.append("")
+        ctx_lines.append("## 현재 메시지")
+        ctx_lines.append(text)
+        return "\n".join(ctx_lines)
 
-        # ⏳ reaction
-        slack_io.add_reaction(self.web, channel, ts, "hourglass_flowing_sand")
+    def _who_label(self, ctx: dict) -> str:
+        if ctx["is_miri"]:
+            return self.user_name
+        if ctx["is_other_bot"]:
+            return "other-bot"
+        return "?"
 
-        thread_ts = event.get("thread_ts", "")
-        who_label = self.user_name if is_miri else ("other-bot" if is_other_bot else "?")
-        self.append_shared(channel, thread_ts, who_label, text, msg_ts=ts)
-
-        # 공유 버퍼 → prompt prefix (cross-channel 맥락)
-        shared = self.load_shared(channel, thread_ts)
-        prompt_with_ctx = text
-        if shared and len(shared) > 1:
-            ctx_lines = [f"## 최근 대화 맥락 ({self.user_name}·Claude·다른 봇 모두 포함)"]
-            for h in shared[-15:-1]:
-                ctx_lines.append(f"[{h.get('who','?')}] {h.get('text','')[:400]}")
-            ctx_lines.append("")
-            ctx_lines.append("## 현재 메시지")
-            ctx_lines.append(text)
-            prompt_with_ctx = "\n".join(ctx_lines)
-
-        # 클로드 호출
-        reply = call_claude(
-            prompt_with_ctx, channel,
-            sessions_dir=self.sessions_dir,
-            system_prompt=self.system_prompt,
-            timeout=self.claude_timeout,
-            on_invoke=lambda ch, sid, lin, lout: self.audit.log_invocation(
-                channel=ch, session_id=sid, prompt=prompt_with_ctx,
+    def _audit_callback(self, prompt: str):
+        def _cb(ch, sid, lin, lout):
+            self.audit.log_invocation(
+                channel=ch, session_id=sid, prompt=prompt,
                 result_len=lout, status=("ok" if lout > 0 else "fail"),
-            ),
-        )
-        logger.info("reply: %s", reply[:80])
+            )
+        return _cb
 
-        # SKIP 응답 (다른 봇이 응답할 차례)
+    def _handle_reply(self, channel: str, ts: str, thread_ts: str,
+                      reply: str) -> str | None:
+        """슬랙에 게시한 텍스트 (to_mrkdwn 변환 후) 를 리턴. SKIP/empty/FAIL → None.
+
+        리턴값은 Notion 적재본을 슬랙·shared_buffer 본문과 동기화하기 위해 사용.
+        """
         if reply.strip().upper().startswith("SKIP"):
             logger.info("SKIP — other bot's turn")
             slack_io.swap_reaction(self.web, channel, ts, "hourglass_flowing_sand", "eyes")
-            return
+            return None
 
-        # 빈 응답 또는 silent fail → reaction 만
         if not reply.strip() or reply.strip() == "__SILENT_FAIL__":
             is_fail = reply.strip() == "__SILENT_FAIL__"
-            logger.info("empty/fail reply — no slack send (fail=%s)", is_fail)
+            logger.info("empty/fail reply (fail=%s)", is_fail)
             slack_io.swap_reaction(
                 self.web, channel, ts, "hourglass_flowing_sand",
                 "warning" if is_fail else "speech_balloon",
             )
-            return
+            return None
 
-        # 마크다운 정리
         try:
             from lib.slack_mrkdwn import to_mrkdwn
             reply_clean = to_mrkdwn(reply)
         except Exception:
             reply_clean = reply
 
-        res = slack_io.post_message(self.web, channel, reply_clean)
-        if res and channel == self.channel_dialog:
+        # 1) thread_ts 가 있는 메시지는 같은 스레드에 응답해야 함 (없으면 채널 루트로 빠짐).
+        # 2) post_message 실패 (res falsy) 시 Slack 엔 아무것도 안 올라간 상태이므로
+        #    shared_buffer / Notion 에도 기록하면 안 됨. warning reaction 으로 알리고 None 반환.
+        res = slack_io.post_message(
+            self.web, channel, reply_clean,
+            thread_ts=thread_ts or None,
+        )
+        if not res:
+            slack_io.swap_reaction(
+                self.web, channel, ts, "hourglass_flowing_sand", "warning",
+            )
+            return None
+
+        if channel == self.channel_dialog:
             with self.state_lock:
                 self.dialog_self_turn_count += 1
 
-        if res:
-            self.append_shared(channel, thread_ts, "클코", reply_clean,
-                               msg_ts=str(res.get("ts", "") or ""))
+        shared_buffer.append(
+            self.shared_dir, channel, thread_ts, "클코", reply_clean,
+            msg_ts=str(res.get("ts", "") or ""),
+        )
 
-        # ⏳ → ✅
         slack_io.swap_reaction(self.web, channel, ts, "hourglass_flowing_sand",
                                "white_check_mark")
+        return reply_clean
 
-        # 노션 로그 비동기
+    # -------- Message handler (dispatcher) --------
+    def handle_message(self, event: dict) -> None:
+        ctx = self._apply_filters(event)
+        if ctx is None:
+            return
+        is_dialog, c = ctx
+
+        if is_dialog and c["is_miri"]:
+            self._toggle_discussion(c["channel"], c["text"])
+
+        if c["is_other_bot"]:
+            shared_buffer.append(
+                self.shared_dir, c["channel"], c["thread_ts"],
+                "other-bot", c["text"], msg_ts=c["ts"],
+            )
+            if not self._check_other_bot_continue(c["channel"]):
+                return
+
+        if c["text"].lower() in RESET_KEYWORDS:
+            new_sid = reset_session(c["channel"], self.sessions_dir)
+            slack_io.post_message(
+                self.web, c["channel"], f"🔄 새 세션 시작 (`{new_sid[:8]}`)",
+            )
+            return
+
+        logger.info("msg: %s", c["text"][:80])
+
+        slack_io.add_reaction(self.web, c["channel"], c["ts"], "hourglass_flowing_sand")
+        shared_buffer.append(
+            self.shared_dir, c["channel"], c["thread_ts"],
+            self._who_label(c), c["text"], msg_ts=c["ts"],
+        )
+
+        prompt = self._build_prompt(c["channel"], c["thread_ts"], c["text"])
+        reply = call_claude(
+            prompt, c["channel"],
+            sessions_dir=self.sessions_dir,
+            system_prompt=self.system_prompt,
+            timeout=self.claude_timeout,
+            on_invoke=self._audit_callback(prompt),
+        )
+        logger.info("reply: %s", reply[:80])
+        posted = self._handle_reply(c["channel"], c["ts"], c["thread_ts"], reply)
+        if posted is None:
+            return
+
         try:
-            sid_for_log, _ = get_or_create_session(channel, self.sessions_dir)
+            sid_for_log, _ = get_or_create_session(c["channel"], self.sessions_dir)
             threading.Thread(
                 target=notion_log_turn,
-                args=(channel, ts, text, reply_clean, sid_for_log, "opus"),
+                args=(c["channel"], c["ts"], c["text"], posted, sid_for_log, "opus"),
                 kwargs={
                     "session_db": self.notion_session_db,
                     "daily_db": self.notion_daily_db,

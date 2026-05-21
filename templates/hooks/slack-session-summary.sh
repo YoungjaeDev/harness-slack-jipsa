@@ -29,12 +29,48 @@ if [[ -n "${SLACK_HOOK_RUNNING:-}" ]]; then
 fi
 export SLACK_HOOK_RUNNING=1
 
+# ── 인스턴스 결정 (글로벌 vs 프로젝트별) ───────────────────────────
+# stdin JSON 의 cwd 를 ~/.claude/scripts/slack-jipsa-shared/projects.json 의 등록된
+# 프로젝트 경로와 prefix match. 가장 긴 매치의 id 사용. 매치 없으면 글로벌.
+# 매핑 결과로 .env 경로가 결정됨 (`~/.claude/secrets/{instance}.env`).
+PROJECTS_JSON="$HOME/.claude/scripts/slack-jipsa-shared/projects.json"
+PRE_STDIN_JSON=$(cat)
+STDIN_CWD=$(printf '%s' "$PRE_STDIN_JSON" | jq -r '.cwd // empty' 2>/dev/null)
+
+INSTANCE="slack-jipsa"
+if [[ -n "$STDIN_CWD" && -f "$PROJECTS_JSON" ]]; then
+  # trailing slash 가 .path 끝에 붙어 있어도 같은 결과를 내도록 정규화.
+  # 예: .path="/Users/x/proj/" 와 cwd="/Users/x/proj/src" 가 매칭되어야 함.
+  # startswith 안에서 .p 직접 참조 시 pipe 컨텍스트 . 가 $c(string) 로 바뀌어
+  # "Cannot index string with string p" 에러가 나므로 .p 를 변수로 캡처.
+  MATCHED_ID=$(jq -r --arg cwd "$STDIN_CWD" '
+    ($cwd | sub("/+$"; "")) as $c
+    | .projects // []
+    | map({id: .id, p: (.path | sub("/+$"; ""))})
+    | map(select(.p as $pp | ($c == $pp) or ($c | startswith($pp + "/"))))
+    | sort_by(.p | length)
+    | last
+    | .id // empty
+  ' "$PROJECTS_JSON" 2>/dev/null)
+  if [[ -n "$MATCHED_ID" ]]; then
+    INSTANCE="slack-jipsa-$MATCHED_ID"
+  fi
+fi
+
+# 인스턴스별 .env 시도 → 없으면 글로벌로 폴백 (호환성).
+ENV_FILE="$HOME/.claude/secrets/${INSTANCE}.env"
+if [[ ! -f "$ENV_FILE" && "$INSTANCE" != "slack-jipsa" ]]; then
+  ENV_FILE="$HOME/.claude/secrets/slack-jipsa.env"
+fi
+
 # .env 단일 출처 — settings.json env 의존 제거 (이중 관리 drift 방지)
-# settings.json env 보존 — 사용자가 거기 채워뒀어도 동작하지만, .env 값이 있으면 .env 우선.
-if [[ -f "$HOME/.claude/secrets/slack-jipsa.env" ]]; then
+if [[ -f "$ENV_FILE" ]]; then
   set -a
-  # shellcheck disable=SC1091
-  source "$HOME/.claude/secrets/slack-jipsa.env" 2>/dev/null || true
+  # SC1090: source 경로가 동적(인스턴스에 따라 결정) — 의도된 동작.
+  # SC1091: 외부 파일이라 shellcheck 가 못 따라감 — 의도된 동작.
+  # shellcheck source=/dev/null
+  # shellcheck disable=SC1090,SC1091
+  source "$ENV_FILE" 2>/dev/null || true
   set +a
 fi
 
@@ -49,9 +85,10 @@ if [[ -z "$SLACK_URL" && -z "$NOTION_TOKEN" \
   exit 0
 fi
 
-STDIN_JSON=$(cat)
+# stdin 은 위 인스턴스 매칭 단계에서 이미 PRE_STDIN_JSON 으로 한 번 읽음 (재사용).
+STDIN_JSON="$PRE_STDIN_JSON"
 SESSION_ID=$(printf '%s' "$STDIN_JSON" | jq -r '.session_id // empty' 2>/dev/null)
-CWD=$(printf '%s' "$STDIN_JSON" | jq -r '.cwd // empty' 2>/dev/null)
+CWD="$STDIN_CWD"
 [[ -z "$SESSION_ID" ]] && exit 0
 [[ -z "$CWD" ]] && CWD="$(pwd)"
 PROJECT_NAME=$(basename "$CWD")

@@ -60,6 +60,29 @@ Windows Stop hook 도 이제 검증본입니다: `templates/windows/slack-sessio
 
 ## 사용자에게 처음 묻는 것
 
+### Step -1. 권한 모드 권장 (필수 안내)
+
+본격적인 진행 전에 사용자에게 권한 모드를 한 번 안내합니다. 이 셋업은 폴더 생성·시크릿 파일 쓰기·서비스 등록·`~/.claude/settings.json` 편집 등 권한 승인이 필요한 도구 호출을 30회 이상 합니다. 기본(default) 권한 모드라면 단계마다 사용자가 승인 클릭을 해야 하므로, 키트의 "복붙만" 약속이 깨집니다.
+
+사용자에게:
+```text
+셋업 시작 전에 한 가지만. 이 키트는 폴더 생성·시크릿 파일 쓰기·서비스 등록·settings.json 편집 등 권한이 필요한 도구를 다수 호출합니다.
+
+매 단계마다 승인 클릭을 피하시려면 권한 우회 모드로 진행해 주세요:
+
+  1) 새 터미널에서 `claude --dangerously-skip-permissions` 로 다시 시작
+  2) 또는 이 세션 안에서 `/permissions` 입력 → bypassPermissions 선택
+  3) 둘 다 안 하고 그대로 진행 (제가 명령을 안내하고, 권한 필요한 부분은 직접 터미널에서 실행하시면 됩니다)
+
+어떻게 하시겠어요? (1 / 2 / 3)
+```
+
+답변 받기 전까지 Step 0 으로 넘어가지 마세요. 답변에 따라:
+- **1 / 2 선택** → "그럼 권한 우회로 진행할게요. Step 0 로 갑니다." 라고만 답하고 Step 0 시작.
+- **3 선택** → "알겠습니다. 권한이 필요한 명령은 제가 복붙용으로 안내드릴 테니 직접 터미널에서 실행해 주세요." 라고 답하고 Step 0 시작. 이후 자동 실행 못 하는 도구 호출이 나오면 사용자에게 명령만 안내.
+
+> 사용자가 권한 모드 자체에 익숙하지 않으면 옵션 1(새 터미널) 을 권장. 옵션 2 는 이미 세션 진행 중일 때.
+
 ### Step 0. 보안 확인 (모듈 1·3·4 선택자에게 필수)
 
 사용자에게:
@@ -97,6 +120,111 @@ C) .env 파일 / 시크릿 폴더를 외부에 절대 공유하지 않을 자신
 - **OS 분기 (필수)** — 아래 "OS별 분기 로직" 참고하여 사용자 OS에 맞게 진행
 - **Claude Code 미설치** → 먼저 설치 안내. https://docs.claude.com/claude-code 링크 전달
 - **준비 완료** → 선택한 모듈의 `modules/0?-*.md` 파일을 Read하고 진행 시작
+
+### Step 1.1. 사용자 홈 경로 한글/공백 검사 (필수)
+
+OS 답변을 받은 직후 (모듈 진행 전) `$HOME` (Windows: `%USERPROFILE%`) 에 한글이나 공백이 섞여 있는지 확인합니다. Windows 사용자명·프로젝트 경로·WATCH_FOLDER 에 한글/공백이 섞이면 PowerShell quoting 이 자주 깨집니다.
+
+검사:
+- macOS / Linux: `echo "$HOME"` 결과를 정규식 `[^\x20-\x7e]` 또는 공백으로 검사
+- Windows: `$env:USERPROFILE` 결과를 동일 정규식으로 검사
+
+한글이나 공백이 발견되면 사용자에게 한 번만 안내 (셋업은 계속):
+```text
+감지: 사용자 홈 경로에 한글 또는 공백이 포함되어 있어요 ({실제 경로}).
+진행 자체는 가능하지만, PowerShell 명령에서 quoting 이슈가 생기기 쉬워 더 신중히 진행할게요.
+이후 단계에서 명령이 실패하면 quoting 문제일 가능성이 높습니다 — 알려주세요.
+```
+
+발견 시 AI는 이후 모든 PowerShell 명령에서 다음 규칙을 보수적으로 적용:
+- 경로 변수는 항상 큰따옴표로 quote: `"$WatchDir"`, `"$env:USERPROFILE\..."`
+- 외부 exe 호출은 call operator (`& "C:\path with space\exe.exe" arg`) 사용
+- `Test-Path` 등 PowerShell cmdlet 은 `-LiteralPath` 우선 사용
+- 다중 줄 인자는 single-quoted here-string (`@'...'@`) 으로 묶기
+- `git log --% --format=...` 처럼 `--` 또는 `--%` (stop-parsing) 로 인자 경계 명시
+
+한글/공백이 없으면 별도 안내 없이 다음 단계로.
+
+### Step 1.5. 설치 스코프 — 글로벌 vs 프로젝트 (모듈 1·3·4 선택자에게 필수)
+
+모듈 1 (슬랙 ↔ 클코) 진행 전에 인스턴스 분리 여부를 한 번 묻습니다. 같은 머신에서 여러 프로젝트를 각각의 슬랙 채널로 분리하고 싶을 수 있고, 단일 글로벌 비서만 원할 수도 있습니다.
+
+사용자에게:
+```text
+슬랙 봇을 어떻게 설치할까요?
+
+  ① 글로벌 — 한 봇이 모든 작업에 응답. 가장 단순 (기존 동작).
+  ② 프로젝트별 — 특정 폴더와 연결된 전용 봇 (별도 슬랙 채널·앱 필요).
+                같은 머신에 여러 개 깔 수 있어요.
+
+(잘 모르겠으면 ①.)
+```
+
+#### 글로벌 (옵션 1) 선택 시
+
+기존 동작 그대로. 식별자는 전부 `slack-jipsa` 고정:
+- `.env` → `~/.claude/secrets/slack-jipsa.env`
+- 디렉토리 → `~/.claude/scripts/slack-jipsa/`
+- 자동 시작 (launchd) → `com.{USERNAME}.slack-jipsa.plist`
+- 자동 시작 (systemd) → `slack-jipsa.service`
+- 자동 시작 (Task) → `AgentBootstrap-SlackDaemon`
+
+`PROJECT_ID` / `PROJECT_DIR` 변수는 비웁니다.
+
+#### 프로젝트별 (옵션 2) 선택 시
+
+다음 3개를 단계별로 확정:
+
+**(a) 프로젝트 절대경로 받기**
+```text
+어느 프로젝트 폴더와 연결할까요? 절대경로로 알려주세요.
+(예: macOS/Linux → /Users/이름/Projects/foo, Windows → C:\dev\foo)
+```
+- 받은 경로 검증: 존재 여부 (`Test-Path` / `[ -d ]`), 디렉토리인지, Step 1.1 의 한글/공백 검사
+- 미존재 / 파일 경로면 다시 물어봄. 한글/공백은 경고만.
+
+**(b) `PROJECT_ID` slug 제안**
+
+basename 을 sanitize 한 기본값 제안:
+- 소문자화 → 영숫자·하이픈 외 모두 `-` 로 → 연속 `-` 압축 → 앞뒤 `-` 제거
+- 규칙 `^[a-z][a-z0-9-]{0,30}$` 만족하는지 확인
+- sanitize 결과가 빈 문자열 (예: 한글 basename) 이면 사용자에게 직접 입력 요청
+
+```text
+이 프로젝트의 식별자 (slug) 를 정할게요.
+제안: harness-slack-jipsa
+(소문자/숫자/하이픈만, 31자 이내. 모든 식별자에 -{ID} 접미사로 붙습니다.)
+
+이대로 갈까요? 다른 이름 원하시면 알려주세요.
+```
+
+**(c) 별도 슬랙 App + Channel 필요 안내**
+```text
+주의: 프로젝트별로 별도의 Slack App + 채널이 필요합니다.
+이유 — Socket Mode 토큰 (xapp-...) 을 두 daemon 이 공유하면 메시지가 둘 중
+어디로 갈지 비결정적이 됩니다. 같은 워크스페이스 안에 슬랙 앱 하나 더 만들고
+별도 채널 (예: #프로젝트명-비서) 을 준비해 주세요.
+```
+
+확정되면 다음 변수를 셋업 전체에 걸쳐 사용:
+- `PROJECT_ID` = 사용자 확정 slug (예: `harness-slack-jipsa`)
+- `PROJECT_DIR` = 프로젝트 절대경로
+- `INSTANCE` = `slack-jipsa-{PROJECT_ID}` (예: `slack-jipsa-harness-slack-jipsa`)
+- `PROJECT_SUFFIX` = `-{PROJECT_ID}` (글로벌이면 빈 문자열)
+
+`.env` / 디렉토리 / launchd Label / systemd unit / Task name 전부 `INSTANCE` 패턴으로 치환. 모듈 1 문서 (Step 9 ·13 ·15.5) 의 인스턴스 분기 안내 참고.
+
+#### 양쪽 다 — 동작 흐름 요약
+
+| 항목 | 글로벌 | 프로젝트 |
+|------|--------|----------|
+| `.env` 경로 | `~/.claude/secrets/slack-jipsa.env` | `~/.claude/secrets/slack-jipsa-{ID}.env` |
+| daemon 디렉토리 | `~/.claude/scripts/slack-jipsa/` | `~/.claude/scripts/slack-jipsa-{ID}/` |
+| daemon cwd (claude --print) | `~/.claude/scripts/slack-jipsa/` | `PROJECT_DIR` (절대경로) |
+| Stop hook .env 선택 | 항상 글로벌 | `projects.json` 매핑 결과 (cwd prefix match) |
+| 공유 디렉토리 | `~/.claude/scripts/slack-jipsa-shared/` | 동일 (모든 인스턴스 공유) |
+
+> projects.json (`~/.claude/scripts/slack-jipsa-shared/projects.json`) 은 사용자 머신 외부 저장 메타파일. 프로젝트 모드 셋업 끝에 한 줄 append (모듈 1 Step 15.5 참고). 첫 셋업 때 사용자에게 한 번 고지하세요.
 
 ## OS별 분기 로직
 

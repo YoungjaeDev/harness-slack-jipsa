@@ -47,6 +47,8 @@ claude
 
 Claude 가 OS·모듈·환경 확인 후 단계별 진행. 한 단계 끝나면 "됐어" 답만.
 
+> **권장**: 셋업은 폴더 생성·시크릿 파일 쓰기·서비스 등록·settings.json 편집 등 권한 승인이 필요한 도구 호출이 많습니다. 매 단계 승인 클릭을 피하려면 시작 시 `claude --dangerously-skip-permissions` 또는 세션 안에서 `/permissions` → bypassPermissions 를 선택해 주세요. 미사용 시 일부 명령은 사용자가 직접 터미널에서 실행해야 합니다.
+
 ---
 
 ## 필수 준비물

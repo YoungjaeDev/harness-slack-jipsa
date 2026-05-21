@@ -21,15 +21,17 @@ if (Test-Path $EnvFile) {
 }
 
 function Process-File($filePath) {
-    $basename = Split-Path $filePath -Leaf
+    $basename = Split-Path -LiteralPath $filePath -Leaf
     $log = Join-Path $LogDir "$(Get-Date -Format 'yyyy-MM-dd').log"
-    "[$(Get-Date -Format 'HH:mm:ss')] Processing: $basename" | Out-File -Append -Encoding UTF8 $log
+    "[$(Get-Date -Format 'HH:mm:ss')] Processing: $basename" | Out-File -Append -Encoding UTF8 -LiteralPath $log
 
+    # WATCH_FOLDER 또는 파일명에 한글/공백이 섞여도 안전하도록 모든 인자를 quote.
+    # `--` 로 옵션 종료를 명시해 prompt 가 우연히 옵션처럼 해석되는 것도 방지.
     $prompt = "{SCENARIO_PROMPT} $filePath"
-    claude --print --add-dir $WatchDir $prompt *>> $log
+    claude --print --add-dir "$WatchDir" -- "$prompt" *>> "$log"
 
     $newName = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$basename"
-    Move-Item $filePath (Join-Path $ProcessedDir $newName)
+    Move-Item -LiteralPath $filePath -Destination (Join-Path $ProcessedDir $newName)
 }
 
 # 시작 시 이미 있는 파일 1회 정리 (dotfile 제외)

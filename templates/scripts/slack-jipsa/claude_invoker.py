@@ -31,7 +31,9 @@ def run_claude(prompt: str, session_id: str, is_new: bool, timeout: int,
         "--append-system-prompt", system_prompt,
     ]
     cmd.extend(["--session-id", session_id] if is_new else ["--resume", session_id])
-    cwd = str(Path.home() / ".claude/scripts/slack-jipsa")
+    # 프로젝트 모드: PROJECT_DIR (절대경로) 가 있으면 그걸 cwd 로. 사용자 프로젝트의
+    # CLAUDE.md 가 헤드리스 세션에 자동 로드된다. 글로벌이면 기존 위치로 폴백.
+    cwd = env.get("PROJECT_DIR") or str(Path.home() / ".claude/scripts/slack-jipsa")
     # Windows 의 기본 ANSI 코드페이지 (cp949 등) 가 claude UTF-8 출력을
     # decode 하다 reader thread 가 크래시하면 r.stdout=None 으로 흘러
     # 호출부가 빈 응답으로 처리한다. encoding/errors 명시로 차단.

@@ -20,18 +20,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 저장소 vs 사용자 머신의 경로 매핑
 
-저장소에 보이는 파일들이 사용자 머신에서 사는 위치:
+저장소에 보이는 파일들이 사용자 머신에서 사는 위치. `{INSTANCE}` 토큰 = 글로벌이면 `slack-jipsa`, 프로젝트 모드면 `slack-jipsa-{PROJECT_ID}`. `{PROJECT_SUFFIX}` = 글로벌이면 빈 문자열, 프로젝트면 `-{PROJECT_ID}`. (SKILL.md Step 1.5 에서 결정.)
 
 | 저장소 (이 폴더) | 사용자 머신 |
 |------------------|-------------|
-| `.env.example` | `~/.claude/secrets/slack-jipsa.env` (chmod 600) |
+| `.env.example` | `~/.claude/secrets/{INSTANCE}.env` (chmod 600) |
 | `templates/lib/*.py` | `~/.claude/scripts/lib/*.py` (단 `md_to_notion.py`는 `~/.claude/hooks/`) |
 | `templates/hooks/*` | `~/.claude/hooks/*` |
-| `templates/scripts/slack-jipsa/daemon.py` | `~/.claude/scripts/slack-jipsa/daemon.py` |
-| `templates/launchd-*.plist.tmpl` | `~/Library/LaunchAgents/com.{USERNAME}.*.plist` |
-| `templates/systemd-*.tmpl` | `~/.config/systemd/user/*.service|.path` |
+| `templates/scripts/slack-jipsa/*.py` | `~/.claude/scripts/{INSTANCE}/*.py` |
+| `templates/launchd-*.plist.tmpl` | `~/Library/LaunchAgents/com.{USERNAME}.slack-jipsa{PROJECT_SUFFIX}.plist` (folder-watch 는 별도) |
+| `templates/systemd-slack-jipsa.service.tmpl` | `~/.config/systemd/user/{INSTANCE}.service` |
+| `templates/systemd-folder-watch.*.tmpl` | `~/.config/systemd/user/folder-watch.{service,path}` |
+| `templates/windows/register-slack-task.ps1` | Task Scheduler 이름 `AgentBootstrap-SlackDaemon{PROJECT_SUFFIX}` |
 
-추가로 사용자 머신에서만 생성되는 디렉토리: `~/.claude/scripts/slack-jipsa/{logs,sessions,audit}`, `~/.claude/scripts/folder-watch/{logs,locks}`, `~/.claude/scripts/slack-jipsa-shared/`.
+예시 — 글로벌 + 프로젝트(`PROJECT_ID=foo`) 가 한 머신에 공존하는 경우:
+
+| 항목 | 글로벌 | 프로젝트 (foo) |
+|------|--------|----------------|
+| `.env` | `~/.claude/secrets/slack-jipsa.env` | `~/.claude/secrets/slack-jipsa-foo.env` |
+| 디렉토리 | `~/.claude/scripts/slack-jipsa/` | `~/.claude/scripts/slack-jipsa-foo/` |
+| launchd Label | `com.{USERNAME}.slack-jipsa` | `com.{USERNAME}.slack-jipsa-foo` |
+| systemd unit | `slack-jipsa.service` | `slack-jipsa-foo.service` |
+| Windows Task | `AgentBootstrap-SlackDaemon` | `AgentBootstrap-SlackDaemon-foo` |
+| daemon cwd (`claude --print`) | `~/.claude/scripts/slack-jipsa/` | `PROJECT_DIR` (사용자 프로젝트 절대경로) |
+
+추가로 사용자 머신에서만 생성되는 디렉토리: `~/.claude/scripts/{INSTANCE}/{logs,sessions,audit}`, `~/.claude/scripts/folder-watch/{logs,locks}`, `~/.claude/scripts/slack-jipsa-shared/` (모든 인스턴스 공유, `projects.json` cwd↔id 매핑 보관).
 
 ## daemon 내부 모듈 구조 (cleanup 후)
 
@@ -89,7 +102,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 알아두면 좋은 비밀
 
-- 슬랙 daemon은 채널별로 Claude Code 세션을 유지합니다. 세션 ID는 `~/.claude/scripts/slack-jipsa/sessions/{channel}.txt` 에 저장. 사용자가 슬랙에 "리셋" / "새세션" / "reset" 보내면 daemon이 새 UUID 발급 ([daemon.py:390](templates/scripts/slack-jipsa/daemon.py:390)).
-- daemon이 호출하는 `claude --print` 의 `cwd`는 `~/.claude/scripts/slack-jipsa/` 입니다 ([daemon.py:200](templates/scripts/slack-jipsa/daemon.py:200)). 거기에 별도의 `CLAUDE.md` (사용자 머신에 사용자가 직접 만드는 페르소나 규칙)가 있으면 자동 로드됨. 이 저장소의 CLAUDE.md(지금 이 파일)와는 다릅니다.
+- 슬랙 daemon은 채널별로 Claude Code 세션을 유지합니다. 세션 ID는 `~/.claude/scripts/{INSTANCE}/sessions/{channel}.txt` 에 저장. 사용자가 슬랙에 "리셋" / "새세션" / "reset" 보내면 daemon이 새 UUID 발급 ([daemon.py:390](templates/scripts/slack-jipsa/daemon.py:390)).
+- daemon이 호출하는 `claude --print` 의 `cwd`는 `PROJECT_DIR` (프로젝트 모드, 사용자 프로젝트 절대경로) 또는 `~/.claude/scripts/slack-jipsa/` (글로벌) 입니다. 결정 로직은 [claude_invoker.py](templates/scripts/slack-jipsa/claude_invoker.py) 의 `cwd = env.get("PROJECT_DIR") or ...`. cwd 의 `CLAUDE.md` 가 자동 로드됨. 이 저장소의 CLAUDE.md(지금 이 파일)와는 다릅니다.
+- 인스턴스 분리 메타: Stop hook (`slack-session-summary.sh` / `.ps1`) 이 stdin JSON 의 `cwd` 를 `~/.claude/scripts/slack-jipsa-shared/projects.json` 의 등록 경로와 prefix match → 가장 긴 path 의 id 로 `.env` 결정. 매치 실패 시 글로벌 `slack-jipsa.env` 폴백 (기존 사용자 호환).
 - Notion API 버전이 두 개 섞여 있습니다: DB 생성은 `2022-06-28` (스키마 단순), 런타임 upsert는 `lib/notion.py` 가 `2025-09-03` (data_source 지원) 사용. 변경 시 [modules/04-notion-archive.md](modules/04-notion-archive.md) Step 3 의 주석 참고.
 - `.env`/secrets 파일은 `.gitignore` 가 `*.env` (단 `.env.example` 제외) 와 `secrets/` 를 차단합니다. 토큰이 커밋에 들어가지 않도록 새 파일 추가 시 패턴 확인.

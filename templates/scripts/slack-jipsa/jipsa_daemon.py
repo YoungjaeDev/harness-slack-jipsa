@@ -315,7 +315,15 @@ class JipsaDaemon:
     def start(self) -> None:
         """daemon 시작. member monitor + sock 연결."""
         try:
-            interval = int(self.env.get("SECURITY_MONITOR_INTERVAL", "3600"))
+            raw_interval = self.env.get("SECURITY_MONITOR_INTERVAL", "3600")
+            try:
+                interval = int(raw_interval)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid SECURITY_MONITOR_INTERVAL=%r, using default 3600",
+                    raw_interval,
+                )
+                interval = 3600
             if interval <= 0:
                 logger.warning(
                     "SECURITY_MONITOR_INTERVAL must be positive, using default 3600",

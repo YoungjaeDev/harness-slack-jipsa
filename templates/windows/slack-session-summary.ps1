@@ -40,16 +40,18 @@ if ($STDIN_JSON) {
 }
 
 # projects.json 의 등록 프로젝트 중 cwd 와 prefix match. 가장 긴 path → id.
+# Windows 경로는 case-insensitive 이므로 양쪽 모두 lower-case 로 정규화 후 비교.
+# StartsWith(string) 은 case-sensitive 라 그대로 두면 C:/Dev/Foo 와 c:/dev/foo 가 매칭 안 됨.
 $instance = 'slack-jipsa'
 $projectsJson = Join-Path $env:USERPROFILE '.claude\scripts\slack-jipsa-shared\projects.json'
 if ($stdinCwd -and (Test-Path -LiteralPath $projectsJson)) {
     try {
         $projectsData = Get-Content -LiteralPath $projectsJson -Encoding UTF8 -Raw | ConvertFrom-Json
-        $cwdNorm = $stdinCwd -replace '\\', '/'
+        $cwdNorm = ($stdinCwd -replace '\\', '/').ToLowerInvariant()
         $matched = @($projectsData.projects) |
             Where-Object { $_ -and $_.path -and $_.id } |
             Where-Object {
-                $p = ($_.path -replace '\\', '/')
+                $p = ($_.path -replace '\\', '/').ToLowerInvariant()
                 ($cwdNorm -eq $p) -or $cwdNorm.StartsWith($p + '/')
             } |
             Sort-Object { ($_.path -replace '\\', '/').Length } -Descending |

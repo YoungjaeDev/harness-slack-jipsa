@@ -24,7 +24,7 @@ def _construct(tmp_path, mock_web):
         "USER_NAME": "테스터",
         "SLACK_BOT_NAME": "테스트봇",
     }
-    with patch.object(jd, "WebClient", return_value=mock_web), \
+    with patch.object(jd.slack_io, "make_web_client", return_value=mock_web), \
          patch.object(jd, "SocketModeClient", return_value=MagicMock()), \
          patch.object(jd, "AuditLogger", return_value=MagicMock()), \
          patch.object(jd, "ChannelMemberMonitor", return_value=MagicMock()):

@@ -26,7 +26,7 @@ def make_env(**overrides) -> dict:
 @pytest.fixture
 def daemon_factory(tmp_path, mocker):
     """팩토리: env override 받아 JipsaDaemon 1개 빌드. WebClient/SocketModeClient mock."""
-    mocker.patch("jipsa_daemon.WebClient", autospec=False)
+    mocker.patch("jipsa_daemon.slack_io.make_web_client", autospec=False)
     mocker.patch("jipsa_daemon.SocketModeClient", autospec=False)
 
     def factory(env_overrides: dict | None = None):

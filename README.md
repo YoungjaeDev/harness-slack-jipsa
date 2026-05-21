@@ -79,3 +79,11 @@ Claude 가 OS·모듈·환경 확인 후 단계별 진행. 한 단계 끝나면 
 ## 라이선스
 
 MIT.
+
+---
+
+## Credits
+
+- 이 repo 는 OROT (`orot.ai.service@gmail.com`) 의 `agent-bootstrap v0.1` (initial commit `56dd0be`) 기반.
+- 이후 모듈 분리·테스트·인스턴스 분리·daemon cleanup·Notion 적재 갱신 등은 YoungjaeDev.
+- 라이선스 표기: [LICENSE](LICENSE) 의 dual copyright 라인 참조.

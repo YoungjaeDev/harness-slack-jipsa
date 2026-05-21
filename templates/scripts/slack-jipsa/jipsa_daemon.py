@@ -13,7 +13,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from slack_sdk import WebClient
 from slack_sdk.socket_mode import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
@@ -58,7 +57,7 @@ class JipsaDaemon:
         self.notion_daily_db = env.get("NOTION_DAILY_DB", "")
         self.claude_timeout = int(env.get("CLAUDE_TIMEOUT_SEC", "900"))
 
-        self.web = WebClient(token=self.bot_token)
+        self.web = slack_io.make_web_client(self.bot_token)
         self.bot = self._resolve_bot_user_id(env.get("BOT_USER_ID", "").strip())
         self.sock = SocketModeClient(app_token=self.app_token, web_client=self.web)
 
@@ -316,7 +315,21 @@ class JipsaDaemon:
     def start(self) -> None:
         """daemon 시작. member monitor + sock 연결."""
         try:
-            self.member_monitor.start_periodic(interval_sec=3600)
+            raw_interval = self.env.get("SECURITY_MONITOR_INTERVAL", "3600")
+            try:
+                interval = int(raw_interval)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid SECURITY_MONITOR_INTERVAL=%r, using default 3600",
+                    raw_interval,
+                )
+                interval = 3600
+            if interval <= 0:
+                logger.warning(
+                    "SECURITY_MONITOR_INTERVAL must be positive, using default 3600",
+                )
+                interval = 3600
+            self.member_monitor.start_periodic(interval_sec=interval)
         except Exception as e:
             logger.warning("member monitor start failed: %s", e)
         self.sock.socket_mode_request_listeners.append(self.on_event)
